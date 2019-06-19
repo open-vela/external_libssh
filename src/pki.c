@@ -64,22 +64,16 @@
 #include "libssh/misc.h"
 #include "libssh/agent.h"
 
-enum ssh_keytypes_e pki_privatekey_type_from_string(const char *privkey)
-{
-    char *start = NULL;
-
-    start = strstr(privkey, DSA_HEADER_BEGIN);
-    if (start != NULL) {
+enum ssh_keytypes_e pki_privatekey_type_from_string(const char *privkey) {
+    if (strncmp(privkey, DSA_HEADER_BEGIN, strlen(DSA_HEADER_BEGIN)) == 0) {
         return SSH_KEYTYPE_DSS;
     }
 
-    start = strstr(privkey, RSA_HEADER_BEGIN);
-    if (start != NULL) {
+    if (strncmp(privkey, RSA_HEADER_BEGIN, strlen(RSA_HEADER_BEGIN)) == 0) {
         return SSH_KEYTYPE_RSA;
     }
 
-    start = strstr(privkey, ECDSA_HEADER_BEGIN);
-    if (start != 0) {
+    if (strncmp(privkey, ECDSA_HEADER_BEGIN, strlen(ECDSA_HEADER_BEGIN)) == 0) {
         /* We don't know what the curve is at this point, so we don't actually
          * know the type. We figure out the actual curve and fix things up in
          * pki_private_key_from_base64 */
