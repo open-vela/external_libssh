@@ -1491,18 +1491,12 @@ SSH_PACKET_CALLBACK(ssh_packet_global_request){
     msg->type = SSH_REQUEST_GLOBAL;
 
     if (strcmp(request, "tcpip-forward") == 0) {
-
-        /* According to RFC4254, the client SHOULD reject this message */
-        if (session->client) {
-            goto reply_with_failure;
-        }
-
         r = ssh_buffer_unpack(packet, "sd",
                 &msg->global_request.bind_address,
                 &msg->global_request.bind_port
                 );
         if (r != SSH_OK){
-            goto reply_with_failure;
+            goto error;
         }
         msg->global_request.type = SSH_GLOBAL_REQUEST_TCPIP_FORWARD;
         msg->global_request.want_reply = want_reply;
@@ -1522,17 +1516,11 @@ SSH_PACKET_CALLBACK(ssh_packet_global_request){
             return rc;
         }
     } else if (strcmp(request, "cancel-tcpip-forward") == 0) {
-
-        /* According to RFC4254, the client SHOULD reject this message */
-        if (session->client) {
-            goto reply_with_failure;
-        }
-
         r = ssh_buffer_unpack(packet, "sd",
                 &msg->global_request.bind_address,
                 &msg->global_request.bind_port);
         if (r != SSH_OK){
-            goto reply_with_failure;
+            goto error;
         }
         msg->global_request.type = SSH_GLOBAL_REQUEST_CANCEL_TCPIP_FORWARD;
         msg->global_request.want_reply = want_reply;
