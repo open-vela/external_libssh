@@ -18,7 +18,8 @@ include_directories(
 
 set(TORTURE_LINK_LIBRARIES
     ${CMOCKA_LIBRARY}
-    ${LIBSSH_STATIC_LIBRARY})
+    ${LIBSSH_STATIC_LIBRARY}
+    ${LIBSSH_LINK_LIBRARIES})
 
 # create test library
 add_library(${TORTURE_LIBRARY}
