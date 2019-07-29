@@ -32,7 +32,6 @@
 #include "libssh/pki_priv.h"
 #include "libssh/buffer.h"
 #include "libssh/bignum.h"
-#include "libssh/misc.h"
 
 #define MAX_PASSPHRASE_SIZE 1024
 #define MAX_KEY_SIZE 32
@@ -874,7 +873,7 @@ static ssh_signature pki_signature_from_rsa_blob(const ssh_key pubkey, const
     }
 #ifdef DEBUG_CRYPTO
     SSH_LOG(SSH_LOG_WARN, "RSA signature len: %lu", (unsigned long)len);
-    ssh_log_hexdump("RSA signature", ssh_string_data(sig_blob), len);
+    ssh_print_hexa("RSA signature", ssh_string_data(sig_blob), len);
 #endif
 
     if (len == rsalen) {
@@ -967,7 +966,7 @@ ssh_signature pki_signature_from_blob(const ssh_key pubkey,
                 return NULL;
             }
 #ifdef DEBUG_CRYPTO
-            ssh_log_hexdump("r", ssh_string_data(r), ssh_string_len(r));
+            ssh_print_hexa("r", ssh_string_data(r), ssh_string_len(r));
 #endif
             sig->ecdsa_sig.r = ssh_make_string_bn(r);
             ssh_string_burn(r);
@@ -987,7 +986,7 @@ ssh_signature pki_signature_from_blob(const ssh_key pubkey,
             }
 
 #ifdef DEBUG_CRYPTO
-            ssh_log_hexdump("s", ssh_string_data(s), ssh_string_len(s));
+            ssh_print_hexa("s", ssh_string_data(s), ssh_string_len(s));
 #endif
             sig->ecdsa_sig.s = ssh_make_string_bn(s);
             ssh_string_burn(s);

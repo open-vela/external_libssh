@@ -30,15 +30,13 @@ fedora/openssl_1.1.x/x86_64:
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$FEDORA_BUILD
   script:
   - mkdir -p obj && cd obj && cmake
-    -DCMAKE_INSTALL_PREFIX=/tmp/local
     -DCMAKE_BUILD_TYPE=RelWithDebInfo
     -DPICKY_DEVELOPER=ON
     -DWITH_BLOWFISH_CIPHER=ON
     -DWITH_SFTP=ON -DWITH_SERVER=ON -DWITH_ZLIB=ON -DWITH_PCAP=ON
-    -DWITH_DEBUG_CRYPTO=ON
     -DWITH_DEBUG_PACKET=ON -DWITH_DEBUG_CALLTRACE=ON
     -DUNIT_TESTING=ON -DCLIENT_TESTING=ON -DSERVER_TESTING=ON .. &&
-    make -j$(nproc) && ctest --output-on-failure && make install
+    make -j$(nproc) && ctest --output-on-failure
   tags:
   - shared
   except:
@@ -99,10 +97,9 @@ fedora/address-sanitizer:
   script:
   - mkdir -p obj && cd obj && cmake
     -DCMAKE_BUILD_TYPE=AddressSanitizer
-    -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
     -DPICKY_DEVELOPER=ON
     -DWITH_SFTP=ON -DWITH_SERVER=ON -DWITH_ZLIB=ON -DWITH_PCAP=ON
-    -DUNIT_TESTING=ON -DFUZZ_TESTING=ON .. &&
+    -DUNIT_TESTING=ON .. &&
     make -j$(nproc) && ctest --output-on-failure
   tags:
   - shared
@@ -218,7 +215,7 @@ fedora/libgcrypt/x86_64:
     -DPICKY_DEVELOPER=ON
     -DWITH_SFTP=ON -DWITH_SERVER=ON -DWITH_ZLIB=ON -DWITH_PCAP=ON
     -DUNIT_TESTING=ON -DCLIENT_TESTING=ON -DSERVER_TESTING=ON
-    -DWITH_GCRYPT=ON -DWITH_DEBUG_CRYPTO=ON .. &&
+    -DWITH_GCRYPT=ON .. &&
     make -j$(nproc) && ctest --output-on-failure
   tags:
   - shared
@@ -238,7 +235,7 @@ fedora/mbedtls/x86_64:
     -DPICKY_DEVELOPER=ON
     -DWITH_SFTP=ON -DWITH_SERVER=ON -DWITH_ZLIB=ON -DWITH_PCAP=ON
     -DUNIT_TESTING=ON -DCLIENT_TESTING=ON -DSERVER_TESTING=ON
-    -DWITH_MBEDTLS=ON -DWITH_DEBUG_CRYPTO=ON .. &&
+    -DWITH_MBEDTLS=ON .. &&
     make -j$(nproc) && ctest --output-on-failure
   tags:
   - shared
@@ -416,8 +413,7 @@ tumbleweed/openssl_1.1.x/x86_64/clang:
     -DPICKY_DEVELOPER=ON
     -DWITH_SFTP=ON -DWITH_SERVER=ON -DWITH_ZLIB=ON -DWITH_PCAP=ON
     -DKRB5_CONFIG=/usr/lib/mit/bin/krb5-config
-    -DUNIT_TESTING=ON
-    -DCLIENT_TESTING=ON -DSERVER_TESTING=ON .. &&
+    -DUNIT_TESTING=ON -DCLIENT_TESTING=ON -DSERVER_TESTING=ON .. &&
     make -j$(nproc) && ctest --output-on-failure
   tags:
   - shared
