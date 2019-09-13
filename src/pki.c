@@ -162,14 +162,7 @@ void ssh_key_clean (ssh_key key){
     }
 #endif
     if (key->ed25519_privkey != NULL){
-#ifdef HAVE_OPENSSL_ED25519
-        /* In OpenSSL implementation the private key is only the private
-         * original seed. In the internal implementation the private key is the
-         * concatenation of the original private seed with the public key.*/
-        explicit_bzero(key->ed25519_privkey, ED25519_KEY_LEN);
-#else
         explicit_bzero(key->ed25519_privkey, sizeof(ed25519_privkey));
-#endif
         SAFE_FREE(key->ed25519_privkey);
     }
     SAFE_FREE(key->ed25519_pubkey);
@@ -686,10 +679,7 @@ void ssh_signature_free(ssh_signature sig)
 #endif
             break;
         case SSH_KEYTYPE_ED25519:
-#ifndef HAVE_OPENSSL_ED25519
-            /* When using OpenSSL, the signature is stored in sig->raw_sig */
             SAFE_FREE(sig->ed25519_sig);
-#endif
             break;
         case SSH_KEYTYPE_DSS_CERT01:
         case SSH_KEYTYPE_RSA_CERT01:
@@ -1331,21 +1321,21 @@ static int pki_import_pubkey_buffer(ssh_buffer buffer,
         case SSH_KEYTYPE_ED25519:
         {
             ssh_string pubkey = ssh_buffer_get_ssh_string(buffer);
-            if (ssh_string_len(pubkey) != ED25519_KEY_LEN) {
+            if (ssh_string_len(pubkey) != ED25519_PK_LEN) {
                 SSH_LOG(SSH_LOG_WARN, "Invalid public key length");
                 ssh_string_burn(pubkey);
                 ssh_string_free(pubkey);
                 goto fail;
             }
 
-            key->ed25519_pubkey = malloc(ED25519_KEY_LEN);
+            key->ed25519_pubkey = malloc(ED25519_PK_LEN);
             if (key->ed25519_pubkey == NULL) {
                 ssh_string_burn(pubkey);
                 ssh_string_free(pubkey);
                 goto fail;
             }
 
-            memcpy(key->ed25519_pubkey, ssh_string_data(pubkey), ED25519_KEY_LEN);
+            memcpy(key->ed25519_pubkey, ssh_string_data(pubkey), ED25519_PK_LEN);
             ssh_string_burn(pubkey);
             ssh_string_free(pubkey);
         }
@@ -2239,7 +2229,7 @@ int pki_key_check_hash_compatible(ssh_key key,
 int ssh_pki_signature_verify(ssh_session session,
                              ssh_signature sig,
                              const ssh_key key,
-                             const unsigned char *input,
+                             unsigned char *input,
                              size_t input_len)
 {
     int rc;
@@ -2269,7 +2259,7 @@ int ssh_pki_signature_verify(ssh_session session,
         return SSH_ERROR;
     }
 
-    rc = pki_verify_data_signature(sig, key, input, input_len);
+    rc = pki_signature_verify(session, sig, key, input, input_len);
 
     return rc;
 }
@@ -2291,6 +2281,12 @@ ssh_signature pki_do_sign(const ssh_key privkey,
     rc = pki_key_check_hash_compatible(privkey, hash_type);
     if (rc != SSH_OK) {
         return NULL;
+    }
+
+    if (privkey->type == SSH_KEYTYPE_ED25519 ||
+        privkey->type == SSH_KEYTYPE_ED25519_CERT01)
+    {
+        return pki_do_sign_hash(privkey, input, input_len, SSH_DIGEST_AUTO);
     }
 
     return pki_sign_data(privkey, hash_type, input, input_len);
