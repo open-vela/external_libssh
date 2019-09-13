@@ -1119,7 +1119,6 @@ int ssh_buffer_unpack_va(struct ssh_buffer_struct *buffer,
             goto cleanup;
         }
 
-        rc = SSH_ERROR;
         switch (*p) {
         case 'b':
             o.byte = va_arg(ap, uint8_t *);
@@ -1129,32 +1128,27 @@ int ssh_buffer_unpack_va(struct ssh_buffer_struct *buffer,
         case 'w':
             o.word = va_arg(ap,  uint16_t *);
             rlen = ssh_buffer_get_data(buffer, o.word, sizeof(uint16_t));
-            if (rlen == 2) {
-                *o.word = ntohs(*o.word);
-                rc = SSH_OK;
-            }
+            *o.word = ntohs(*o.word);
+            rc = rlen==2 ? SSH_OK : SSH_ERROR;
             break;
         case 'd':
             o.dword = va_arg(ap, uint32_t *);
             rlen = ssh_buffer_get_u32(buffer, o.dword);
-            if (rlen == 4) {
-                *o.dword = ntohl(*o.dword);
-                rc = SSH_OK;
-            }
+            *o.dword = ntohl(*o.dword);
+            rc = rlen==4 ? SSH_OK : SSH_ERROR;
             break;
         case 'q':
             o.qword = va_arg(ap, uint64_t*);
             rlen = ssh_buffer_get_u64(buffer, o.qword);
-            if (rlen == 8) {
-                *o.qword = ntohll(*o.qword);
-                rc = SSH_OK;
-            }
+            *o.qword = ntohll(*o.qword);
+            rc = rlen==8 ? SSH_OK : SSH_ERROR;
             break;
         case 'B':
             o.bignum = va_arg(ap, bignum *);
             *o.bignum = NULL;
             tmp_string = ssh_buffer_get_ssh_string(buffer);
             if (tmp_string == NULL) {
+                rc = SSH_ERROR;
                 break;
             }
             *o.bignum = ssh_make_string_bn(tmp_string);
@@ -1173,12 +1167,14 @@ int ssh_buffer_unpack_va(struct ssh_buffer_struct *buffer,
 
             o.cstring = va_arg(ap, char **);
             *o.cstring = NULL;
-            rlen = ssh_buffer_get_u32(buffer, &u32len);
-            if (rlen != 4){
+            rc = ssh_buffer_get_u32(buffer, &u32len);
+            if (rc != 4){
+                rc = SSH_ERROR;
                 break;
             }
             len = ntohl(u32len);
             if (len > max_len - 1) {
+                rc = SSH_ERROR;
                 break;
             }
 
@@ -1234,6 +1230,7 @@ int ssh_buffer_unpack_va(struct ssh_buffer_struct *buffer,
             break;
         default:
             SSH_LOG(SSH_LOG_WARN, "Invalid buffer format %c", *p);
+            rc = SSH_ERROR;
         }
         if (rc != SSH_OK) {
             break;
