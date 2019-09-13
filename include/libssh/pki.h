@@ -28,9 +28,7 @@
 #ifdef HAVE_OPENSSL_ECDSA_H
 #include <openssl/ecdsa.h>
 #endif
-#ifdef HAVE_LIBCRYPTO
-#include <openssl/evp.h>
-#endif
+
 #include "libssh/crypto.h"
 #ifdef HAVE_OPENSSL_ED25519
 /* If using OpenSSL implementation, define the signature lenght which would be
@@ -48,7 +46,6 @@
 #define SSH_KEY_FLAG_EMPTY   0x0
 #define SSH_KEY_FLAG_PUBLIC  0x0001
 #define SSH_KEY_FLAG_PRIVATE 0x0002
-#define SSH_KEY_FLAG_PKCS11_URI 0x0004
 
 struct ssh_key_struct {
     enum ssh_keytypes_e type;
@@ -66,7 +63,6 @@ struct ssh_key_struct {
 #elif defined(HAVE_LIBCRYPTO)
     DSA *dsa;
     RSA *rsa;
-    EVP_PKEY *key; /* Saving the OpenSSL context here to save time while converting*/
 # if defined(HAVE_OPENSSL_ECC)
     EC_KEY *ecdsa;
 # else
@@ -166,9 +162,4 @@ ssh_public_key ssh_pki_convert_key_to_publickey(const ssh_key key);
 ssh_private_key ssh_pki_convert_key_to_privatekey(const ssh_key key);
 
 int ssh_key_algorithm_allowed(ssh_session session, const char *type);
-
-/* PKCS11 URI function to check if filename is a path or a PKCS11 URI */
-bool ssh_pki_is_uri(const char *filename);
-char *ssh_pki_export_pub_uri_from_priv_uri(const char *priv_uri);
-
 #endif /* PKI_H_ */
