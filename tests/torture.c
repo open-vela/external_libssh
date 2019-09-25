@@ -262,8 +262,6 @@ ssh_session torture_ssh_session(struct torture_state *s,
     int method;
     int rc;
 
-    bool process_config = false;
-
     if (host == NULL) {
         return NULL;
     }
@@ -278,10 +276,6 @@ ssh_session torture_ssh_session(struct torture_state *s,
         ssh_set_pcap_file(session, s->plain_pcap);
     }
 #endif /* WITH_PCAP */
-
-    if (ssh_options_set(session, SSH_OPTIONS_LOG_VERBOSITY, &verbosity) < 0) {
-        goto failed;
-    }
 
     if (ssh_options_set(session, SSH_OPTIONS_HOST, host) < 0) {
         goto failed;
@@ -299,8 +293,7 @@ ssh_session torture_ssh_session(struct torture_state *s,
         }
     }
 
-    if (ssh_options_set(session, SSH_OPTIONS_PROCESS_CONFIG,
-                        &process_config) < 0) {
+    if (ssh_options_set(session, SSH_OPTIONS_LOG_VERBOSITY, &verbosity) < 0) {
         goto failed;
     }
 
