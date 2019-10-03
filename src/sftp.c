@@ -1269,7 +1269,7 @@ static char *sftp_parse_longname(const char *longname,
     size_t len, field = 0;
 
     p = longname;
-    /* Find the beginning of the field which is specified by sftp_longname_field_e. */
+    /* Find the beginning of the field which is specified by sftp_longanme_field_e. */
     while(field != longname_field) {
         if(isspace(*p)) {
             field++;
@@ -1982,7 +1982,7 @@ ssize_t sftp_read(sftp_file handle, void *buf, size_t count) {
       if (datalen > count) {
         ssh_set_error(sftp->session, SSH_FATAL,
             "Received a too big DATA packet from sftp server: "
-            "%zu and asked for %zu",
+            "%" PRIdS " and asked for %" PRIdS,
             datalen, count);
         SSH_STRING_FREE(datastring);
         return -1;
@@ -2104,7 +2104,7 @@ int sftp_async_read(sftp_file file, void *data, uint32_t size, uint32_t id){
       if (ssh_string_len(datastring) > size) {
         ssh_set_error(sftp->session, SSH_FATAL,
             "Received a too big DATA packet from sftp server: "
-            "%zu and asked for %u",
+            "%" PRIdS " and asked for %u",
             ssh_string_len(datastring), size);
         SSH_STRING_FREE(datastring);
         return SSH_ERROR;
