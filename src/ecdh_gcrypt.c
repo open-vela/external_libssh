@@ -115,7 +115,7 @@ int ssh_client_ecdh_init(ssh_session session)
  out:
     gcry_sexp_release(param);
     gcry_sexp_release(key);
-    SSH_STRING_FREE(client_pubkey);
+    ssh_string_free(client_pubkey);
     return rc;
 }
 
@@ -215,13 +215,13 @@ int ecdh_build_k(ssh_session session)
         k_len = 133;
     } else {
         ssh_string_burn(s);
-        SSH_STRING_FREE(s);
+        ssh_string_free(s);
         goto out;
     }
 
     if (ssh_string_len(s) != k_len) {
         ssh_string_burn(s);
-        SSH_STRING_FREE(s);
+        ssh_string_free(s);
         goto out;
     }
 
@@ -231,7 +231,7 @@ int ecdh_build_k(ssh_session session)
                         k_len / 2,
                         NULL);
     ssh_string_burn(s);
-    SSH_STRING_FREE(s);
+    ssh_string_free(s);
     if (err) {
         goto out;
     }
@@ -254,7 +254,7 @@ int ecdh_build_k(ssh_session session)
     gcry_sexp_release(data);
     gcry_sexp_release(result);
     ssh_string_burn(privkey);
-    SSH_STRING_FREE(privkey);
+    ssh_string_free(privkey);
     return rc;
 }
 
@@ -347,7 +347,7 @@ SSH_PACKET_CALLBACK(ssh_packet_server_ecdh_init){
     rc = ssh_dh_get_next_server_publickey_blob(session, &pubkey_blob);
     if (rc != SSH_OK) {
         ssh_set_error(session, SSH_FATAL, "Could not export server public key");
-        SSH_STRING_FREE(sig_blob);
+        ssh_string_free(sig_blob);
         goto out;
     }
 
@@ -358,8 +358,8 @@ SSH_PACKET_CALLBACK(ssh_packet_server_ecdh_init){
                          q_s_string, /* ecdh public key */
                          sig_blob); /* signature blob */
 
-    SSH_STRING_FREE(sig_blob);
-    SSH_STRING_FREE(pubkey_blob);
+    ssh_string_free(sig_blob);
+    ssh_string_free(pubkey_blob);
 
     if (rc != SSH_OK) {
         ssh_set_error_oom(session);

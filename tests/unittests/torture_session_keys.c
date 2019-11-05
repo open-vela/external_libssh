@@ -81,7 +81,7 @@ static void torture_session_keys(UNUSED_PARAM(void **state))
     assert_memory_equal(test_crypto.encryptMAC, eMAC, 32);
     assert_memory_equal(test_crypto.decryptMAC, dMAC, 32);
 
-    SSH_STRING_FREE(k_string);
+    ssh_string_free(k_string);
 }
 
 int torture_run_tests(void) {

@@ -257,15 +257,14 @@ static int open_location(struct location *loc, int flag) {
  * @param recursive Copy also directories
  */
 static int do_copy(struct location *src, struct location *dest, int recursive) {
-    size_t size;
+    int size;
     socket_t fd;
     struct stat s;
     int w, r;
     char buffer[16384];
-    size_t total = 0;
-    mode_t mode;
+    int total = 0;
+    int mode;
     char *filename = NULL;
-
     /* recursive mode doesn't work yet */
     (void)recursive;
     /* Get the file name and size*/
@@ -303,7 +302,7 @@ static int do_copy(struct location *src, struct location *dest, int recursive) {
                 fprintf(stderr,
                         "Error: %s\n",
                         ssh_get_error(src->session));
-                SSH_STRING_FREE_CHAR(filename);
+                ssh_string_free_char(filename);
                 return -1;
             }
         } while(r != SSH_SCP_REQUEST_NEWFILE);
@@ -316,7 +315,7 @@ static int do_copy(struct location *src, struct location *dest, int recursive) {
             fprintf(stderr,
                     "error: %s\n",
                     ssh_get_error(dest->session));
-            SSH_STRING_FREE_CHAR(filename);
+            ssh_string_free_char(filename);
             ssh_scp_free(dest->scp);
             dest->scp = NULL;
             return -1;
@@ -331,7 +330,7 @@ static int do_copy(struct location *src, struct location *dest, int recursive) {
                 if (src->is_ssh) {
                     ssh_scp_deny_request(src->scp, "Cannot open local file");
                 }
-                SSH_STRING_FREE_CHAR(filename);
+                ssh_string_free_char(filename);
                 return -1;
             }
         }
@@ -347,7 +346,7 @@ static int do_copy(struct location *src, struct location *dest, int recursive) {
                 fprintf(stderr,
                         "Error reading scp: %s\n",
                         ssh_get_error(src->session));
-                SSH_STRING_FREE_CHAR(filename);
+                ssh_string_free_char(filename);
                 return -1;
             }
 
@@ -364,7 +363,7 @@ static int do_copy(struct location *src, struct location *dest, int recursive) {
                 fprintf(stderr,
                         "Error reading file: %s\n",
                         strerror(errno));
-                SSH_STRING_FREE_CHAR(filename);
+                ssh_string_free_char(filename);
                 return -1;
             }
         }
@@ -377,7 +376,7 @@ static int do_copy(struct location *src, struct location *dest, int recursive) {
                         ssh_get_error(dest->session));
                 ssh_scp_free(dest->scp);
                 dest->scp = NULL;
-                SSH_STRING_FREE_CHAR(filename);
+                ssh_string_free_char(filename);
                 return -1;
             }
         } else {
@@ -386,7 +385,7 @@ static int do_copy(struct location *src, struct location *dest, int recursive) {
                 fprintf(stderr,
                         "Error writing in local file: %s\n",
                         strerror(errno));
-                SSH_STRING_FREE_CHAR(filename);
+                ssh_string_free_char(filename);
                 return -1;
             }
         }
@@ -394,8 +393,8 @@ static int do_copy(struct location *src, struct location *dest, int recursive) {
 
     } while(total < size);
 
-    SSH_STRING_FREE_CHAR(filename);
-    printf("wrote %zu bytes\n", total);
+    ssh_string_free_char(filename);
+    printf("wrote %d bytes\n", total);
     return 0;
 }
 
