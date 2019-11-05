@@ -264,11 +264,7 @@ SSH_PACKET_CALLBACK(ssh_packet_kexdh_init){
   return SSH_PACKET_NOT_USED;
 }
 
-int
-ssh_get_key_params(ssh_session session,
-                   ssh_key *privkey,
-                   enum ssh_digest_e *digest)
-{
+int ssh_get_key_params(ssh_session session, ssh_key *privkey){
     ssh_key pubkey;
     ssh_string pubkey_blob;
     int rc;
@@ -294,7 +290,6 @@ ssh_get_key_params(ssh_session session,
         *privkey = NULL;
     }
 
-    *digest = session->srv.hostkey_digest;
     rc = ssh_pki_export_privkey_to_pubkey(*privkey, &pubkey);
     if (rc < 0) {
       ssh_set_error(session, SSH_FATAL,

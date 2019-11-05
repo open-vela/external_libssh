@@ -2,12 +2,14 @@ project(pkd C)
 
 if (WITH_SERVER AND UNIX AND NOT WIN32)
 
-    include_directories(${libssh_SOURCE_DIR}/include
-                        ${CMOCKA_INCLUDE_DIR}
-                        ${ZLIB_INCLUDE_DIR}
-                        ${CMAKE_BINARY_DIR}
-                        ${libssh_SOURCE_DIR}/src
-                        ${CMAKE_CURRENT_SOURCE_DIR})
+include_directories(
+  ${LIBSSH_PUBLIC_INCLUDE_DIRS}
+  ${CMOCKA_INCLUDE_DIR}
+  ${ZLIB_INCLUDE_DIR}
+  ${CMAKE_BINARY_DIR}
+  ${CMAKE_SOURCE_DIR}/src
+  ${CMAKE_CURRENT_SOURCE_DIR}
+)
 
 set(pkd_hello_src
   pkd_daemon.c
@@ -18,7 +20,8 @@ set(pkd_hello_src
 
 set(pkd_libs
     ${CMOCKA_LIBRARY}
-    ssh::static
+    ${LIBSSH_STATIC_LIBRARY}
+    ${LIBSSH_LINK_LIBRARIES}
     ${ARGP_LIBRARIES}
     pthread
 )
