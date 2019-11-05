@@ -166,22 +166,15 @@ int server_set_kex(ssh_session session)
         return -1;
     }
 
-    for (i = 0; i < SSH_KEX_METHODS; i++) {
+    for (i = 0; i < 10; i++) {
         wanted = session->opts.wanted_methods[i];
-        if (wanted == NULL) {
+        if (wanted  == NULL) {
             if (ssh_fips_mode()) {
                 wanted = ssh_kex_get_fips_methods(i);
             } else {
                 wanted = ssh_kex_get_default_methods(i);
             }
         }
-        if (wanted == NULL) {
-            for (j = 0; j < i; j++) {
-                SAFE_FREE(server->methods[j]);
-            }
-            return -1;
-        }
-
         server->methods[i] = strdup(wanted);
         if (server->methods[i] == NULL) {
             for (j = 0; j < i; j++) {
@@ -202,7 +195,7 @@ int ssh_server_init_kex(ssh_session session) {
     }
 
     /* free any currently-set methods: server_set_kex will allocate new ones */
-    for (i = 0; i < SSH_KEX_METHODS; i++) {
+    for (i = 0; i < 10 /* SSH_KEX_METHODS */; i++) {
         SAFE_FREE(session->next_crypto->server_kex.methods[i]);
     }
 
@@ -318,7 +311,7 @@ ssh_get_key_params(ssh_session session,
     }
 
     rc = ssh_dh_import_next_pubkey_blob(session, pubkey_blob);
-    SSH_STRING_FREE(pubkey_blob);
+    ssh_string_free(pubkey_blob);
     if (rc != 0) {
         ssh_set_error(session,
                       SSH_FATAL,
@@ -517,11 +510,9 @@ static int ssh_server_kex_termination(void *s){
     return 1;
 }
 
-/* FIXME: auth_methods should be unsigned */
-void ssh_set_auth_methods(ssh_session session, int auth_methods)
-{
-    /* accept only methods in range */
-    session->auth.supported_methods = (uint32_t)auth_methods & 0x3fU;
+void ssh_set_auth_methods(ssh_session session, int auth_methods){
+	/* accept only methods in range */
+    session->auth.supported_methods = auth_methods & 0x3f;
 }
 
 /* Do the banner and key exchange */
@@ -829,17 +820,12 @@ int ssh_message_auth_kbdint_is_response(ssh_message msg) {
   return msg->auth_request.kbdint_response != 0;
 }
 
-/* FIXME: methods should be unsigned */
 int ssh_message_auth_set_methods(ssh_message msg, int methods) {
   if (msg == NULL || msg->session == NULL) {
     return -1;
   }
 
-  if (methods < 0) {
-      return -1;
-  }
-
-  msg->session->auth.supported_methods = (uint32_t)methods;
+  msg->session->auth.supported_methods = methods;
 
   return 0;
 }
@@ -1032,14 +1018,14 @@ int ssh_message_auth_reply_pk_ok_simple(ssh_message msg) {
 
     ret = ssh_pki_export_pubkey_blob(msg->auth_request.pubkey, &pubkey_blob);
     if (ret < 0) {
-        SSH_STRING_FREE(algo);
+        ssh_string_free(algo);
         return SSH_ERROR;
     }
 
     ret = ssh_message_auth_reply_pk_ok(msg, algo, pubkey_blob);
 
-    SSH_STRING_FREE(algo);
-    SSH_STRING_FREE(pubkey_blob);
+    ssh_string_free(algo);
+    ssh_string_free(pubkey_blob);
 
     return ret;
 }

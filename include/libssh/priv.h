@@ -287,7 +287,7 @@ socket_t ssh_connect_host_nonblocking(ssh_session session, const char *host,
 
 /* in base64.c */
 ssh_buffer base64_to_bin(const char *source);
-uint8_t *bin_to_base64(const uint8_t *source, size_t len);
+unsigned char *bin_to_base64(const unsigned char *source, int len);
 
 /* gzip.c */
 int compress_buffer(ssh_session session,ssh_buffer buf);

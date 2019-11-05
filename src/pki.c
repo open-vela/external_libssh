@@ -174,7 +174,7 @@ void ssh_key_clean (ssh_key key){
     }
     SAFE_FREE(key->ed25519_pubkey);
     if (key->cert != NULL) {
-        SSH_BUFFER_FREE(key->cert);
+        ssh_buffer_free(key->cert);
     }
     key->cert_type = SSH_KEYTYPE_UNKNOWN;
     key->flags=SSH_KEY_FLAG_EMPTY;
@@ -705,7 +705,7 @@ void ssh_signature_free(ssh_signature sig)
 
     /* Explicitly zero the signature content before free */
     ssh_string_burn(sig->raw_sig);
-    SSH_STRING_FREE(sig->raw_sig);
+    ssh_string_free(sig->raw_sig);
     SAFE_FREE(sig);
 }
 
@@ -817,7 +817,7 @@ int ssh_pki_export_privkey_base64(const ssh_key privkey,
     }
 
     b64 = strndup(ssh_string_data(blob), ssh_string_len(blob));
-    SSH_STRING_FREE(blob);
+    ssh_string_free(blob);
     if (b64 == NULL) {
         return SSH_ERROR;
     }
@@ -979,7 +979,7 @@ int ssh_pki_export_privkey_file(const ssh_key privkey,
     }
 
     rc = fwrite(ssh_string_data(blob), ssh_string_len(blob), 1, fp);
-    SSH_STRING_FREE(blob);
+    ssh_string_free(blob);
     if (rc != 1 || ferror(fp)) {
         fclose(fp);
         unlink(filename);
@@ -1083,15 +1083,15 @@ int pki_import_privkey_buffer(enum ssh_keytypes_e type,
                                ssh_string_len(privkey));
 #endif
                 ssh_string_burn(p);
-                SSH_STRING_FREE(p);
+                ssh_string_free(p);
                 ssh_string_burn(q);
-                SSH_STRING_FREE(q);
+                ssh_string_free(q);
                 ssh_string_burn(g);
-                SSH_STRING_FREE(g);
+                ssh_string_free(g);
                 ssh_string_burn(pubkey);
-                SSH_STRING_FREE(pubkey);
+                ssh_string_free(pubkey);
                 ssh_string_burn(privkey);
-                SSH_STRING_FREE(privkey);
+                ssh_string_free(privkey);
                 if (rc == SSH_ERROR) {
                     goto fail;
                 }
@@ -1124,17 +1124,17 @@ int pki_import_privkey_buffer(enum ssh_keytypes_e type,
                 ssh_log_hexdump("q", ssh_string_data(q), ssh_string_len(q));
 #endif
                 ssh_string_burn(n);
-                SSH_STRING_FREE(n);
+                ssh_string_free(n);
                 ssh_string_burn(e);
-                SSH_STRING_FREE(e);
+                ssh_string_free(e);
                 ssh_string_burn(d);
-                SSH_STRING_FREE(d);
+                ssh_string_free(d);
                 ssh_string_burn(iqmp);
-                SSH_STRING_FREE(iqmp);
+                ssh_string_free(iqmp);
                 ssh_string_burn(p);
-                SSH_STRING_FREE(p);
+                ssh_string_free(p);
                 ssh_string_burn(q);
-                SSH_STRING_FREE(q);
+                ssh_string_free(q);
                 if (rc == SSH_ERROR) {
                     SSH_LOG(SSH_LOG_WARN, "Failed to build RSA private key");
                     goto fail;
@@ -1158,16 +1158,16 @@ int pki_import_privkey_buffer(enum ssh_keytypes_e type,
                 }
 
                 nid = pki_key_ecdsa_nid_from_name(ssh_string_get_char(i));
-                SSH_STRING_FREE(i);
+                ssh_string_free(i);
                 if (nid == -1) {
                     goto fail;
                 }
 
                 rc = pki_privkey_build_ecdsa(key, nid, e, exp);
                 ssh_string_burn(e);
-                SSH_STRING_FREE(e);
+                ssh_string_free(e);
                 ssh_string_burn(exp);
-                SSH_STRING_FREE(exp);
+                ssh_string_free(exp);
                 if (rc < 0) {
                     SSH_LOG(SSH_LOG_WARN, "Failed to build ECDSA private key");
                     goto fail;
@@ -1187,8 +1187,8 @@ int pki_import_privkey_buffer(enum ssh_keytypes_e type,
 
                 rc = pki_privkey_build_ed25519(key, pubkey, privkey);
                 ssh_string_burn(privkey);
-                SSH_STRING_FREE(privkey);
-                SSH_STRING_FREE(pubkey);
+                ssh_string_free(privkey);
+                ssh_string_free(pubkey);
                 if (rc != SSH_OK) {
                     SSH_LOG(SSH_LOG_WARN, "Failed to build ed25519 key");
                     goto fail;
@@ -1252,13 +1252,13 @@ static int pki_import_pubkey_buffer(ssh_buffer buffer,
                 ssh_log_hexdump("g", ssh_string_data(g), ssh_string_len(g));
 #endif
                 ssh_string_burn(p);
-                SSH_STRING_FREE(p);
+                ssh_string_free(p);
                 ssh_string_burn(q);
-                SSH_STRING_FREE(q);
+                ssh_string_free(q);
                 ssh_string_burn(g);
-                SSH_STRING_FREE(g);
+                ssh_string_free(g);
                 ssh_string_burn(pubkey);
-                SSH_STRING_FREE(pubkey);
+                ssh_string_free(pubkey);
                 if (rc == SSH_ERROR) {
                     SSH_LOG(SSH_LOG_WARN, "Failed to build DSA public key");
                     goto fail;
@@ -1282,9 +1282,9 @@ static int pki_import_pubkey_buffer(ssh_buffer buffer,
                 ssh_log_hexdump("n", ssh_string_data(n), ssh_string_len(n));
 #endif
                 ssh_string_burn(e);
-                SSH_STRING_FREE(e);
+                ssh_string_free(e);
                 ssh_string_burn(n);
-                SSH_STRING_FREE(n);
+                ssh_string_free(n);
                 if (rc == SSH_ERROR) {
                     SSH_LOG(SSH_LOG_WARN, "Failed to build RSA public key");
                     goto fail;
@@ -1308,14 +1308,14 @@ static int pki_import_pubkey_buffer(ssh_buffer buffer,
                 }
 
                 nid = pki_key_ecdsa_nid_from_name(ssh_string_get_char(i));
-                SSH_STRING_FREE(i);
+                ssh_string_free(i);
                 if (nid == -1) {
                     goto fail;
                 }
 
                 rc = pki_pubkey_build_ecdsa(key, nid, e);
                 ssh_string_burn(e);
-                SSH_STRING_FREE(e);
+                ssh_string_free(e);
                 if (rc < 0) {
                     SSH_LOG(SSH_LOG_WARN, "Failed to build ECDSA public key");
                     goto fail;
@@ -1334,20 +1334,20 @@ static int pki_import_pubkey_buffer(ssh_buffer buffer,
             if (ssh_string_len(pubkey) != ED25519_KEY_LEN) {
                 SSH_LOG(SSH_LOG_WARN, "Invalid public key length");
                 ssh_string_burn(pubkey);
-                SSH_STRING_FREE(pubkey);
+                ssh_string_free(pubkey);
                 goto fail;
             }
 
             key->ed25519_pubkey = malloc(ED25519_KEY_LEN);
             if (key->ed25519_pubkey == NULL) {
                 ssh_string_burn(pubkey);
-                SSH_STRING_FREE(pubkey);
+                ssh_string_free(pubkey);
                 goto fail;
             }
 
             memcpy(key->ed25519_pubkey, ssh_string_data(pubkey), ED25519_KEY_LEN);
             ssh_string_burn(pubkey);
-            SSH_STRING_FREE(pubkey);
+            ssh_string_free(pubkey);
         }
         break;
         case SSH_KEYTYPE_DSS_CERT01:
@@ -1449,7 +1449,7 @@ static int pki_import_cert_buffer(ssh_buffer buffer,
 
 fail:
     ssh_key_free(key);
-    SSH_BUFFER_FREE(cert);
+    ssh_buffer_free(cert);
     return SSH_ERROR;
 }
 
@@ -1485,17 +1485,17 @@ int ssh_pki_import_pubkey_base64(const char *b64_key,
 
     type_s = ssh_buffer_get_ssh_string(buffer);
     if (type_s == NULL) {
-        SSH_BUFFER_FREE(buffer);
+        ssh_buffer_free(buffer);
         return SSH_ERROR;
     }
-    SSH_STRING_FREE(type_s);
+    ssh_string_free(type_s);
 
     if (is_cert_type(type)) {
         rc = pki_import_cert_buffer(buffer, type, pkey);
     } else {
         rc = pki_import_pubkey_buffer(buffer, type, pkey);
     }
-    SSH_BUFFER_FREE(buffer);
+    ssh_buffer_free(buffer);
 
     return rc;
 }
@@ -1550,7 +1550,7 @@ int ssh_pki_import_pubkey_blob(const ssh_string key_blob,
         SSH_LOG(SSH_LOG_WARN, "Unknown key type found!");
         goto fail;
     }
-    SSH_STRING_FREE(type_s);
+    ssh_string_free(type_s);
 
     if (is_cert_type(type)) {
         rc = pki_import_cert_buffer(buffer, type, pkey);
@@ -1558,12 +1558,12 @@ int ssh_pki_import_pubkey_blob(const ssh_string key_blob,
         rc = pki_import_pubkey_buffer(buffer, type, pkey);
     }
 
-    SSH_BUFFER_FREE(buffer);
+    ssh_buffer_free(buffer);
 
     return rc;
 fail:
-    SSH_BUFFER_FREE(buffer);
-    SSH_STRING_FREE(type_s);
+    ssh_buffer_free(buffer);
+    ssh_string_free(type_s);
 
     return SSH_ERROR;
 }
@@ -1881,7 +1881,7 @@ int ssh_pki_export_privkey_to_pubkey(const ssh_key privkey,
  *
  * @return              SSH_OK on success, SSH_ERROR otherwise.
  *
- * @see SSH_STRING_FREE()
+ * @see ssh_string_free()
  */
 int ssh_pki_export_pubkey_blob(const ssh_key key,
                                ssh_string *pblob)
@@ -1911,7 +1911,7 @@ int ssh_pki_export_pubkey_blob(const ssh_key key,
  *
  * @return              SSH_OK on success, SSH_ERROR on error.
  *
- * @see SSH_STRING_FREE_CHAR()
+ * @see ssh_string_free_char()
  */
 int ssh_pki_export_pubkey_base64(const ssh_key key,
                                  char **b64_key)
@@ -1929,7 +1929,7 @@ int ssh_pki_export_pubkey_base64(const ssh_key key,
     }
 
     b64 = bin_to_base64(ssh_string_data(key_blob), ssh_string_len(key_blob));
-    SSH_STRING_FREE(key_blob);
+    ssh_string_free(key_blob);
     if (b64 == NULL) {
         return SSH_ERROR;
     }
@@ -2029,7 +2029,7 @@ int ssh_pki_copy_cert_to_privkey(const ssh_key certkey, ssh_key privkey) {
 
   rc = ssh_buffer_add_buffer(cert_buffer, certkey->cert);
   if (rc != 0) {
-      SSH_BUFFER_FREE(cert_buffer);
+      ssh_buffer_free(cert_buffer);
       return SSH_ERROR;
   }
 
@@ -2056,38 +2056,38 @@ int ssh_pki_export_signature_blob(const ssh_signature sig,
 
     str = ssh_string_from_char(sig->type_c);
     if (str == NULL) {
-        SSH_BUFFER_FREE(buf);
+        ssh_buffer_free(buf);
         return SSH_ERROR;
     }
 
     rc = ssh_buffer_add_ssh_string(buf, str);
-    SSH_STRING_FREE(str);
+    ssh_string_free(str);
     if (rc < 0) {
-        SSH_BUFFER_FREE(buf);
+        ssh_buffer_free(buf);
         return SSH_ERROR;
     }
 
     str = pki_signature_to_blob(sig);
     if (str == NULL) {
-        SSH_BUFFER_FREE(buf);
+        ssh_buffer_free(buf);
         return SSH_ERROR;
     }
 
     rc = ssh_buffer_add_ssh_string(buf, str);
-    SSH_STRING_FREE(str);
+    ssh_string_free(str);
     if (rc < 0) {
-        SSH_BUFFER_FREE(buf);
+        ssh_buffer_free(buf);
         return SSH_ERROR;
     }
 
     str = ssh_string_new(ssh_buffer_get_len(buf));
     if (str == NULL) {
-        SSH_BUFFER_FREE(buf);
+        ssh_buffer_free(buf);
         return SSH_ERROR;
     }
 
     ssh_string_fill(str, ssh_buffer_get(buf), ssh_buffer_get_len(buf));
-    SSH_BUFFER_FREE(buf);
+    ssh_buffer_free(buf);
 
     *sig_blob = str;
 
@@ -2119,29 +2119,29 @@ int ssh_pki_import_signature_blob(const ssh_string sig_blob,
                              ssh_string_data(sig_blob),
                              ssh_string_len(sig_blob));
     if (rc < 0) {
-        SSH_BUFFER_FREE(buf);
+        ssh_buffer_free(buf);
         return SSH_ERROR;
     }
 
     algorithm = ssh_buffer_get_ssh_string(buf);
     if (algorithm == NULL) {
-        SSH_BUFFER_FREE(buf);
+        ssh_buffer_free(buf);
         return SSH_ERROR;
     }
 
     alg = ssh_string_get_char(algorithm);
     type = ssh_key_type_from_signature_name(alg);
     hash_type = ssh_key_hash_from_name(alg);
-    SSH_STRING_FREE(algorithm);
+    ssh_string_free(algorithm);
 
     blob = ssh_buffer_get_ssh_string(buf);
-    SSH_BUFFER_FREE(buf);
+    ssh_buffer_free(buf);
     if (blob == NULL) {
         return SSH_ERROR;
     }
 
     sig = pki_signature_from_blob(pubkey, blob, type, hash_type);
-    SSH_STRING_FREE(blob);
+    ssh_string_free(blob);
     if (sig == NULL) {
         return SSH_ERROR;
     }
@@ -2366,8 +2366,8 @@ ssh_string ssh_pki_do_sign(ssh_session session,
 
 end:
     ssh_signature_free(sig);
-    SSH_BUFFER_FREE(sign_input);
-    SSH_STRING_FREE(session_id);
+    ssh_buffer_free(sign_input);
+    ssh_string_free(session_id);
 
     return sig_blob;
 }
@@ -2384,9 +2384,6 @@ ssh_string ssh_pki_do_sign_agent(ssh_session session,
     int rc;
 
     crypto = ssh_packet_get_current_crypto(session, SSH_DIRECTION_BOTH);
-    if (crypto == NULL) {
-        return NULL;
-    }
 
     /* prepend session identifier */
     session_id = ssh_string_new(crypto->digest_len);
@@ -2397,28 +2394,28 @@ ssh_string ssh_pki_do_sign_agent(ssh_session session,
 
     sig_buf = ssh_buffer_new();
     if (sig_buf == NULL) {
-        SSH_STRING_FREE(session_id);
+        ssh_string_free(session_id);
         return NULL;
     }
 
     rc = ssh_buffer_add_ssh_string(sig_buf, session_id);
     if (rc < 0) {
-        SSH_STRING_FREE(session_id);
-        SSH_BUFFER_FREE(sig_buf);
+        ssh_string_free(session_id);
+        ssh_buffer_free(sig_buf);
         return NULL;
     }
-    SSH_STRING_FREE(session_id);
+    ssh_string_free(session_id);
 
     /* append out buffer */
     if (ssh_buffer_add_buffer(sig_buf, buf) < 0) {
-        SSH_BUFFER_FREE(sig_buf);
+        ssh_buffer_free(sig_buf);
         return NULL;
     }
 
     /* create signature */
     sig_blob = ssh_agent_sign_data(session, pubkey, sig_buf);
 
-    SSH_BUFFER_FREE(sig_buf);
+    ssh_buffer_free(sig_buf);
 
     return sig_blob;
 }
@@ -2482,7 +2479,7 @@ ssh_string ssh_srv_pki_do_sign_sessionid(ssh_session session,
 
 end:
     ssh_signature_free(sig);
-    SSH_BUFFER_FREE(sign_input);
+    ssh_buffer_free(sign_input);
 
     return sig_blob;
 }

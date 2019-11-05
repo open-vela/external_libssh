@@ -234,7 +234,7 @@ int authenticate_console(ssh_session session)
     banner = ssh_get_issue_banner(session);
     if (banner) {
         printf("%s\n",banner);
-        SSH_STRING_FREE_CHAR(banner);
+        ssh_string_free_char(banner);
     }
 
     return rc;

@@ -71,9 +71,6 @@ static ssh_message ssh_message_new(ssh_session session)
     }
     msg->session = session;
 
-    /* Set states explicitly */
-    msg->auth_request.signature_state = SSH_PUBLICKEY_STATE_NONE;
-
     return msg;
 }
 
@@ -699,7 +696,7 @@ static ssh_buffer ssh_msg_userauth_build_digest(ssh_session session,
     }
     rc = ssh_pki_export_pubkey_blob(msg->auth_request.pubkey, &str);
     if (rc < 0) {
-        SSH_BUFFER_FREE(buffer);
+        ssh_buffer_free(buffer);
         return NULL;
     }
 
@@ -715,10 +712,10 @@ static ssh_buffer ssh_msg_userauth_build_digest(ssh_session session,
                          ssh_string_get_char(algo), /* pubkey algorithm */
                          str); /* public key as a blob */
 
-    SSH_STRING_FREE(str);
+    ssh_string_free(str);
     if (rc != SSH_OK) {
         ssh_set_error_oom(session);
-        SSH_BUFFER_FREE(buffer);
+        ssh_buffer_free(buffer);
         return NULL;
     }
 
@@ -800,7 +797,7 @@ SSH_PACKET_CALLBACK(ssh_packet_userauth_request){
      * 3.1.  Initial Exchange
      * "The language tag is deprecated and SHOULD be the empty string."
      */
-    SSH_STRING_FREE(lang);
+    ssh_string_free(lang);
 
     submethods = ssh_buffer_get_ssh_string(packet);
     if (submethods == NULL) {
@@ -812,7 +809,7 @@ SSH_PACKET_CALLBACK(ssh_packet_userauth_request){
      *  server is that, unless the user may use multiple different
      *  submethods, the server ignores this field."
      */
-    SSH_STRING_FREE(submethods);
+    ssh_string_free(submethods);
 
     goto end;
   }
@@ -835,10 +832,10 @@ SSH_PACKET_CALLBACK(ssh_packet_userauth_request){
     }
 
     rc = ssh_pki_import_pubkey_blob(pubkey_blob, &msg->auth_request.pubkey);
-    SSH_STRING_FREE(pubkey_blob);
+    ssh_string_free(pubkey_blob);
     pubkey_blob = NULL;
     if (rc < 0) {
-        SSH_STRING_FREE(algo);
+        ssh_string_free(algo);
         algo = NULL;
         goto error;
     }
@@ -852,16 +849,16 @@ SSH_PACKET_CALLBACK(ssh_packet_userauth_request){
         if(sig_blob == NULL) {
             SSH_LOG(SSH_LOG_PACKET, "Invalid signature packet from peer");
             msg->auth_request.signature_state = SSH_PUBLICKEY_STATE_ERROR;
-            SSH_STRING_FREE(algo);
+            ssh_string_free(algo);
             algo = NULL;
             goto error;
         }
 
         digest = ssh_msg_userauth_build_digest(session, msg, service, algo);
-        SSH_STRING_FREE(algo);
+        ssh_string_free(algo);
         algo = NULL;
         if (digest == NULL) {
-            SSH_STRING_FREE(sig_blob);
+            ssh_string_free(sig_blob);
             SSH_LOG(SSH_LOG_PACKET, "Failed to get digest");
             msg->auth_request.signature_state = SSH_PUBLICKEY_STATE_WRONG;
             goto error;
@@ -894,8 +891,8 @@ SSH_PACKET_CALLBACK(ssh_packet_userauth_request){
                                               ssh_buffer_get_len(digest));
             }
         }
-        SSH_STRING_FREE(sig_blob);
-        SSH_BUFFER_FREE(digest);
+        ssh_string_free(sig_blob);
+        ssh_buffer_free(digest);
         ssh_signature_free(sig);
         if (rc < 0) {
             SSH_LOG(
@@ -909,7 +906,7 @@ SSH_PACKET_CALLBACK(ssh_packet_userauth_request){
 
         msg->auth_request.signature_state = SSH_PUBLICKEY_STATE_VALID;
     }
-    SSH_STRING_FREE(algo);
+    ssh_string_free(algo);
     goto end;
   }
 #ifdef WITH_GSSAPI
@@ -1097,7 +1094,7 @@ SSH_PACKET_CALLBACK(ssh_packet_userauth_info_response){
       goto error;
     }
     session->kbdint->answers[i] = ssh_string_to_char(tmp);
-    SSH_STRING_FREE(tmp);
+    ssh_string_free(tmp);
     if (session->kbdint->answers[i] == NULL) {
       ssh_set_error_oom(session);
       session->kbdint->nanswers = i;

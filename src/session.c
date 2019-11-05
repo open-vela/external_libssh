@@ -162,16 +162,6 @@ ssh_session ssh_new(void)
     }
 #endif
 
-    /* Explicitly initialize states */
-    session->session_state = SSH_SESSION_STATE_NONE;
-    session->pending_call_state = SSH_PENDING_CALL_NONE;
-    session->packet_state = PACKET_STATE_INIT;
-    session->dh_handshake_state = DH_STATE_INIT;
-    session->global_req_state = SSH_CHANNEL_REQ_STATE_NONE;
-
-    session->auth.state = SSH_AUTH_STATE_NONE;
-    session->auth.service_state = SSH_AUTH_SERVICE_NONE;
-
     return session;
 
 err:
@@ -228,15 +218,15 @@ void ssh_free(ssh_session session)
       ssh_poll_ctx_free(session->default_poll_ctx);
   }
 
-  SSH_BUFFER_FREE(session->in_buffer);
-  SSH_BUFFER_FREE(session->out_buffer);
+  ssh_buffer_free(session->in_buffer);
+  ssh_buffer_free(session->out_buffer);
   session->in_buffer = session->out_buffer = NULL;
 
   if (session->in_hashbuf != NULL) {
-      SSH_BUFFER_FREE(session->in_hashbuf);
+      ssh_buffer_free(session->in_hashbuf);
   }
   if (session->out_hashbuf != NULL) {
-      SSH_BUFFER_FREE(session->out_hashbuf);
+      ssh_buffer_free(session->out_hashbuf);
   }
 
   crypto_free(session->current_crypto);
@@ -288,7 +278,7 @@ void ssh_free(ssh_session session)
 
     while ((b = ssh_list_pop_head(struct ssh_buffer_struct *,
                                   session->out_queue)) != NULL) {
-        SSH_BUFFER_FREE(b);
+        ssh_buffer_free(b);
     }
     ssh_list_free(session->out_queue);
 
@@ -314,7 +304,7 @@ void ssh_free(ssh_session session)
   SAFE_FREE(session->opts.gss_client_identity);
   SAFE_FREE(session->opts.pubkey_accepted_types);
 
-  for (i = 0; i < SSH_KEX_METHODS; i++) {
+  for (i = 0; i < 10; i++) {
       if (session->opts.wanted_methods[i]) {
           SAFE_FREE(session->opts.wanted_methods[i]);
       }
@@ -1025,7 +1015,7 @@ int ssh_get_pubkey_hash(ssh_session session, unsigned char **hash)
     }
 
     md5_update(ctx, ssh_string_data(pubkey_blob), ssh_string_len(pubkey_blob));
-    SSH_STRING_FREE(pubkey_blob);
+    ssh_string_free(pubkey_blob);
     md5_final(h, ctx);
 
     *hash = h;
@@ -1214,7 +1204,7 @@ int ssh_get_publickey_hash(const ssh_key key,
     *hash = h;
     rc = 0;
 out:
-    SSH_STRING_FREE(blob);
+    ssh_string_free(blob);
     return rc;
 }
 
