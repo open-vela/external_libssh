@@ -16,8 +16,10 @@ set(LIBSSH_SERVER_TESTS
 #    torture_server_kbdint
 )
 
-include_directories(${libssh_SOURCE_DIR}/include
-                    ${libssh_BINARY_DIR})
+include_directories(
+  ${LIBSSH_PUBLIC_INCLUDE_DIRS}
+  ${CMAKE_BINARY_DIR}
+)
 
 if (ARGP_INCLUDE_DIR)
     include_directories(${ARGP_INCLUDE_DIR})
@@ -28,7 +30,7 @@ if (UNIX AND NOT WIN32)
     target_compile_options(test_server PRIVATE ${DEFAULT_C_COMPILE_FLAGS})
     target_link_libraries(test_server
                           testserver
-                          ssh::ssh
+                          ${LIBSSH_SHARED_LIBRARY}
                           ${ARGP_LIBRARY}
                           util)
 endif ()

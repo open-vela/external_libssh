@@ -1,4 +1,7 @@
-set(LIBSSH_PUBLIC_INCLUDE_DIRS ${libssh_SOURCE_DIR}/include)
+set(LIBSSH_PUBLIC_INCLUDE_DIRS
+  ${libssh_SOURCE_DIR}/include
+  CACHE INTERNAL "libssh public include directories"
+)
 
 set(LIBSSH_PRIVATE_INCLUDE_DIRS
   ${libssh_BINARY_DIR}
@@ -14,6 +17,13 @@ if (WIN32)
     ws2_32
   )
 endif (WIN32)
+
+if (HAVE_LIBSOCKET)
+  set(LIBSSH_LINK_LIBRARIES
+    ${LIBSSH_LINK_LIBRARIES}
+    socket
+  )
+endif (HAVE_LIBSOCKET)
 
 if (OPENSSL_CRYPTO_LIBRARY)
   set(LIBSSH_PRIVATE_INCLUDE_DIRS
@@ -84,6 +94,16 @@ if (WITH_NACL AND NACL_FOUND)
     ${NACL_LIBRARY}
   )
 endif (WITH_NACL AND NACL_FOUND)
+
+set(LIBSSH_LINK_LIBRARIES
+  ${LIBSSH_LINK_LIBRARIES}
+  CACHE INTERNAL "libssh link libraries"
+)
+
+set(LIBSSH_SHARED_LIBRARY
+  ssh_shared
+  CACHE INTERNAL "libssh shared library"
+)
 
 if (BUILD_STATIC_LIB)
   set(LIBSSH_STATIC_LIBRARY
@@ -275,6 +295,11 @@ if (NOT WITH_NACL)
     endif (NOT HAVE_OPENSSL_ED25519)
 endif (NOT WITH_NACL)
 
+include_directories(
+  ${LIBSSH_PUBLIC_INCLUDE_DIRS}
+  ${LIBSSH_PRIVATE_INCLUDE_DIRS}
+)
+
 # Set the path to the default map file
 set(MAP_PATH "${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}.map")
 
@@ -306,23 +331,14 @@ if (WITH_SYMBOL_VERSIONING AND HAVE_LD_VERSION_SCRIPT AND ABIMAP_FOUND)
     )
 endif (WITH_SYMBOL_VERSIONING AND HAVE_LD_VERSION_SCRIPT AND ABIMAP_FOUND)
 
-# This gets built as a static library, if -DBUILD_SHARED_LIBS=OFF is passed to
-# cmake.
-add_library(ssh ${libssh_SRCS})
-target_compile_options(ssh
+add_library(${LIBSSH_SHARED_LIBRARY} SHARED ${libssh_SRCS})
+target_compile_options(${LIBSSH_SHARED_LIBRARY}
                        PRIVATE
                            ${DEFAULT_C_COMPILE_FLAGS}
                            -D_GNU_SOURCE)
-target_include_directories(ssh
-                           PUBLIC
-                               $<BUILD_INTERFACE:${libssh_SOURCE_DIR}/include>
-                               $<INSTALL_INTERFACE:include>
-                           PRIVATE ${LIBSSH_PRIVATE_INCLUDE_DIRS})
 
-target_link_libraries(ssh
+target_link_libraries(${LIBSSH_SHARED_LIBRARY}
                       PRIVATE ${LIBSSH_LINK_LIBRARIES})
-
-add_library(ssh::ssh ALIAS ssh)
 
 if (WITH_SYMBOL_VERSIONING AND HAVE_LD_VERSION_SCRIPT)
     if (ABIMAP_FOUND)
@@ -330,31 +346,34 @@ if (WITH_SYMBOL_VERSIONING AND HAVE_LD_VERSION_SCRIPT)
         set(MAP_PATH "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}_dev.map")
     endif (ABIMAP_FOUND)
 
-    set_target_properties(ssh
+    set_target_properties(${LIBSSH_SHARED_LIBRARY}
                           PROPERTIES LINK_FLAGS
                           "-Wl,--version-script,\"${MAP_PATH}\"")
 endif (WITH_SYMBOL_VERSIONING AND HAVE_LD_VERSION_SCRIPT)
 
-set_target_properties(ssh
+set_target_properties(
+  ${LIBSSH_SHARED_LIBRARY}
     PROPERTIES
       VERSION
         ${LIBRARY_VERSION}
       SOVERSION
         ${LIBRARY_SOVERSION}
+      OUTPUT_NAME
+        ssh
       DEFINE_SYMBOL
         LIBSSH_EXPORTS
 )
 
 if (WITH_VISIBILITY_HIDDEN)
-  set_target_properties(ssh PROPERTIES COMPILE_FLAGS "-fvisibility=hidden")
+  set_target_properties(${LIBSSH_SHARED_LIBRARY} PROPERTIES COMPILE_FLAGS "-fvisibility=hidden")
 endif (WITH_VISIBILITY_HIDDEN)
 
 if (MINGW)
-    set_target_properties(ssh PROPERTIES LINK_FLAGS "-Wl,--enable-stdcall-fixup")
+    set_target_properties(${LIBSSH_SHARED_LIBRARY} PROPERTIES LINK_FLAGS "-Wl,--enable-stdcall-fixup")
 endif ()
 
 
-install(TARGETS ssh
+install(TARGETS ${LIBSSH_SHARED_LIBRARY}
         EXPORT libssh-config
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -365,20 +384,14 @@ install(EXPORT libssh-config
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME})
 
 if (BUILD_STATIC_LIB)
-  add_library(ssh-static STATIC ${libssh_SRCS})
-  target_compile_options(ssh-static
+  add_library(${LIBSSH_STATIC_LIBRARY} STATIC ${libssh_SRCS})
+  target_compile_options(${LIBSSH_STATIC_LIBRARY}
                          PRIVATE
                             ${DEFAULT_C_COMPILE_FLAGS}
                             -D_GNU_SOURCE)
 
-  target_include_directories(ssh-static
-                             PUBLIC
-                                 $<BUILD_INTERFACE:${libssh_SOURCE_DIR}/include>
-                                 $<INSTALL_INTERFACE:include>
-                             PRIVATE ${LIBSSH_PRIVATE_INCLUDE_DIRS})
-  target_link_libraries(ssh-static
+  target_link_libraries(${LIBSSH_STATIC_LIBRARY}
                         PUBLIC ${LIBSSH_LINK_LIBRARIES})
-  add_library(ssh::static ALIAS ssh-static)
 
   if (MSVC)
     set(OUTPUT_SUFFIX static)
@@ -386,7 +399,7 @@ if (BUILD_STATIC_LIB)
     set(OUTPUT_SUFFIX )
   endif (MSVC)
   set_target_properties(
-    ssh-static
+    ${LIBSSH_STATIC_LIBRARY}
       PROPERTIES
         VERSION
           ${LIBRARY_VERSION}
@@ -400,12 +413,21 @@ if (BUILD_STATIC_LIB)
 
   if (WIN32)
     set_target_properties(
-      ssh-static
+      ${LIBSSH_STATIC_LIBRARY}
         PROPERTIES
           COMPILE_FLAGS
             "-DLIBSSH_STATIC"
     )
   endif (WIN32)
+
+    if (WITH_STATIC_LIB)
+      install(TARGETS
+                ${LIBSSH_STATIC_LIBRARY}
+              DESTINATION
+                  ${CMAKE_INSTALL_LIBDIR}/${OUTPUT_SUFFIX}
+              COMPONENT
+                libraries)
+    endif (WITH_STATIC_LIB)
 endif (BUILD_STATIC_LIB)
 
 message(STATUS "Threads_FOUND=${Threads_FOUND}")
