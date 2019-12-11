@@ -157,7 +157,7 @@ static void torture_scp_upload(void **state)
     char expected_a[BUF_SIZE];
     char buf[BUF_SIZE];
     FILE *file = NULL;
-    size_t len = 0;
+
     int rc;
 
     assert_non_null(state);
@@ -202,8 +202,7 @@ static void torture_scp_upload(void **state)
     file = fopen(buf, "r");
     assert_non_null(file);
 
-    len = fread(buf, BUF_SIZE, 1, file);
-    assert_int_equal(len, 1);
+    fread(buf, BUF_SIZE, 1, file);
     assert_memory_equal(buf, expected_a, BUF_SIZE);
 
     fclose(file);
@@ -219,8 +218,8 @@ static void torture_scp_upload_recursive(void **state)
 
     char expected_b[BUF_SIZE];
     char buf[BUF_SIZE];
+
     FILE *file = NULL;
-    size_t len = 0;
 
     int rc;
 
@@ -274,8 +273,7 @@ static void torture_scp_upload_recursive(void **state)
     file = fopen(buf, "r");
     assert_non_null(file);
 
-    len = fread(buf, BUF_SIZE, 1, file);
-    assert_int_equal(len, 1);
+    fread(buf, BUF_SIZE, 1, file);
     assert_memory_equal(buf, expected_b, BUF_SIZE);
 
     fclose(file);
@@ -482,7 +480,7 @@ static void torture_scp_upload_newline(void **state)
     FILE *file = NULL;
 
     char buf[1024];
-    char *rs = NULL;
+
     int rc;
 
     assert_non_null(state);
@@ -533,8 +531,7 @@ static void torture_scp_upload_newline(void **state)
     file = fopen(buf, "r");
     assert_non_null(file);
 
-    rs = fgets(buf, 1024, file);
-    assert_non_null(rs);
+    fgets(buf, 1024, file);
     assert_string_equal(buf, "original");
 
     fclose(file);
