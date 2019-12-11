@@ -315,7 +315,7 @@ static int privatekey_decrypt(int algo, int mode, unsigned int key_len,
   if (gcry_cipher_open(&cipher, algo, mode, 0)
       || gcry_cipher_setkey(cipher, key, key_len)
       || gcry_cipher_setiv(cipher, iv, iv_len)
-      || (tmp = calloc(ssh_buffer_get_len(data), sizeof(unsigned char))) == NULL
+      || (tmp = calloc(ssh_buffer_get_len(data), sizeof(char))) == NULL
       || gcry_cipher_decrypt(cipher, tmp, ssh_buffer_get_len(data),
                        ssh_buffer_get(data), ssh_buffer_get_len(data))) {
     gcry_cipher_close(cipher);
@@ -937,8 +937,6 @@ ssh_string pki_private_key_to_pem(const ssh_key key,
     (void) passphrase;
     (void) auth_fn;
     (void) auth_data;
-
-    SSH_LOG(SSH_LOG_WARN, "PEM export not supported by gcrypt backend!");
 
     return NULL;
 }
@@ -2459,13 +2457,4 @@ int pki_verify_data_signature(ssh_signature signature,
     return SSH_OK;
 }
 
-int pki_uri_import(const char *uri_name, ssh_key *key, enum ssh_key_e key_type)
-{
-    (void) uri_name;
-    (void) key;
-    (void) key_type;
-    SSH_LOG(SSH_LOG_WARN,
-            "gcrypt does not support PKCS #11");
-    return SSH_ERROR;
-}
 #endif /* HAVE_LIBGCRYPT */
