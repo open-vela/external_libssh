@@ -113,7 +113,7 @@ ssh_key pki_private_key_from_base64(const char *b64_key, const char *passphrase,
                     valid = auth_fn("Passphrase for private key:", (char *) tmp,
                             MAX_PASSPHRASE_SIZE, 0, 0, auth_data);
                     if (valid < 0) {
-                        return NULL;
+                        goto fail;
                     }
                     /* TODO fix signedness and strlen */
                     valid = mbedtls_pk_parse_key(rsa,
@@ -155,7 +155,7 @@ ssh_key pki_private_key_from_base64(const char *b64_key, const char *passphrase,
                     valid = auth_fn("Passphrase for private key:", (char *) tmp,
                             MAX_PASSPHRASE_SIZE, 0, 0, auth_data);
                     if (valid < 0) {
-                        return NULL;
+                        goto fail;
                     }
                     valid = mbedtls_pk_parse_key(ecdsa,
                             (const unsigned char *) b64_key,
@@ -246,7 +246,7 @@ int pki_privkey_build_rsa(ssh_key key,
                           ssh_string n,
                           ssh_string e,
                           ssh_string d,
-                          ssh_string iqmp,
+                          UNUSED_PARAM(ssh_string iqmp),
                           ssh_string p,
                           ssh_string q)
 {
@@ -1589,6 +1589,16 @@ int pki_key_generate_dss(ssh_key key, int parameter)
 {
     (void) key;
     (void) parameter;
+    return SSH_ERROR;
+}
+
+int pki_uri_import(const char *uri_name, ssh_key *key, enum ssh_key_e key_type)
+{
+    (void) uri_name;
+    (void) key;
+    (void) key_type;
+    SSH_LOG(SSH_LOG_WARN,
+            "mbedcrypto does not support PKCS #11");
     return SSH_ERROR;
 }
 #endif /* HAVE_LIBMBEDCRYPTO */
