@@ -548,6 +548,48 @@ static void torture_config_match(void **state)
     assert_ssh_return_code(session, ret);
     assert_string_equal(session->opts.host, "otherhost");
 
+    torture_write_file(LIBSSH_TESTCONFIG10,
+                       "Match exec true\n"
+                       "\tHostName execed-true.com\n"
+                       "");
+    torture_reset_config(session);
+    ret = ssh_config_parse_file(session, LIBSSH_TESTCONFIG10);
+    assert_ssh_return_code(session, ret);
+#ifdef _WIN32
+    /* The match exec is not supported on windows at this moment */
+    assert_string_equal(session->opts.host, "otherhost");
+#else
+    assert_string_equal(session->opts.host, "execed-true.com");
+#endif
+
+    torture_write_file(LIBSSH_TESTCONFIG10,
+                       "Match !exec false\n"
+                       "\tHostName execed-false.com\n"
+                       "");
+    torture_reset_config(session);
+    ret = ssh_config_parse_file(session, LIBSSH_TESTCONFIG10);
+    assert_ssh_return_code(session, ret);
+#ifdef _WIN32
+    /* The match exec is not supported on windows at this moment */
+    assert_string_equal(session->opts.host, "otherhost");
+#else
+    assert_string_equal(session->opts.host, "execed-false.com");
+#endif
+
+    torture_write_file(LIBSSH_TESTCONFIG10,
+                       "Match exec \"test 1 -eq 1\"\n"
+                       "\tHostName execed-arguments.com\n"
+                       "");
+    torture_reset_config(session);
+    ret = ssh_config_parse_file(session, LIBSSH_TESTCONFIG10);
+    assert_ssh_return_code(session, ret);
+#ifdef _WIN32
+    /* The match exec is not supported on windows at this moment */
+    assert_string_equal(session->opts.host, "otherhost");
+#else
+    assert_string_equal(session->opts.host, "execed-arguments.com");
+#endif
+
     /* Try to create some invalid configurations */
     /* Missing argument to Match*/
     torture_write_file(LIBSSH_TESTCONFIG10,
@@ -594,7 +636,7 @@ static void torture_config_match(void **state)
     ret = ssh_config_parse_file(session, LIBSSH_TESTCONFIG10);
     assert_ssh_return_code_equal(session, ret, SSH_ERROR);
 
-    /* Missing argument to unsupported option exec */
+    /* Missing argument to option exec */
     torture_write_file(LIBSSH_TESTCONFIG10,
                        "Match exec\n"
                        "\tUser exec\n"
@@ -909,6 +951,128 @@ static void torture_config_pubkeyacceptedkeytypes(void **state)
     }
 }
 
+/* ssh_config_get_cmd() does three things:
+ *  * Strips leading whitespace
+ *  * Terminate the characted on the end of next quotes-enclosed string
+ *  * Terminate on the end of line
+ */
+static void torture_config_parser_get_cmd(void **state)
+{
+    char *p = NULL, *tok = NULL;
+    char data[256];
+
+    (void) state;
+
+    /* Ignore leading whitespace */
+    strncpy(data, "  \t\t  string\n", sizeof(data));
+    p = data;
+    tok = ssh_config_get_cmd(&p);
+    assert_string_equal(tok, "string");
+    assert_int_equal(*p, '\0');
+
+    /* but keeps the trailing whitespace */
+    strncpy(data, "string  \t\t  \n", sizeof(data));
+    p = data;
+    tok = ssh_config_get_cmd(&p);
+    assert_string_equal(tok, "string  \t\t  ");
+    assert_int_equal(*p, '\0');
+
+    /* should drop the quotes and split them into separate arguments */
+    strncpy(data, "\"multi string\" something\n", sizeof(data));
+    p = data;
+    tok = ssh_config_get_cmd(&p);
+    assert_string_equal(tok, "multi string");
+    assert_int_equal(*p, ' ');
+    tok = ssh_config_get_cmd(&p);
+    assert_string_equal(tok, "something");
+    assert_int_equal(*p, '\0');
+
+    /* But it does not split tokens by whitespace if they are not quoted, which is weird */
+    strncpy(data, "multi string something\n", sizeof(data));
+    p = data;
+    tok = ssh_config_get_cmd(&p);
+    assert_string_equal(tok, "multi string something");
+    assert_int_equal(*p, '\0');
+}
+
+/* ssh_config_get_token() should behave as expected
+ *  * Strip leading whitespace
+ *  * Return first token separated by whitespace or equal sign, respecting quotes!
+ */
+static void torture_config_parser_get_token(void **state)
+{
+    char *p = NULL, *tok = NULL;
+    char data[256];
+
+    (void) state;
+
+    /* Ignore leading whitespace (from get_cmd() already */
+    strncpy(data, "  \t\t  string\n", sizeof(data));
+    p = data;
+    tok = ssh_config_get_token(&p);
+    assert_string_equal(tok, "string");
+    assert_int_equal(*p, '\0');
+
+    /* drops trailing whitespace */
+    strncpy(data, "string  \t\t  \n", sizeof(data));
+    p = data;
+    tok = ssh_config_get_token(&p);
+    assert_string_equal(tok, "string");
+    assert_int_equal(*p, ' ');
+    tok = ssh_config_get_token(&p);
+    assert_string_equal(tok, "\0");
+    assert_int_equal(*p, '\0');
+
+    /* Correctly handles tokens in quotes */
+    strncpy(data, "\"multi string\" something\n", sizeof(data));
+    p = data;
+    tok = ssh_config_get_token(&p);
+    assert_string_equal(tok, "multi string");
+    assert_int_equal(*p, ' ');
+    tok = ssh_config_get_token(&p);
+    assert_string_equal(tok, "something");
+    assert_int_equal(*p, '\0');
+
+    /* Consistently splits unquoted strings */
+    strncpy(data, "multi string something\n", sizeof(data));
+    p = data;
+    tok = ssh_config_get_token(&p);
+    assert_string_equal(tok, "multi");
+    assert_int_equal(*p, 's');
+    tok = ssh_config_get_token(&p);
+    assert_string_equal(tok, "string");
+    assert_int_equal(*p, 's');
+    tok = ssh_config_get_token(&p);
+    assert_string_equal(tok, "something");
+    assert_int_equal(*p, '\0');
+
+    /* It is made to parse also option=value pairs as well */
+    strncpy(data, "  key=value  \n", sizeof(data));
+    p = data;
+    tok = ssh_config_get_token(&p);
+    assert_string_equal(tok, "key");
+    assert_int_equal(*p, 'v');
+    tok = ssh_config_get_token(&p);
+    assert_string_equal(tok, "value");
+    assert_int_equal(*p, ' ');
+    tok = ssh_config_get_token(&p);
+    assert_string_equal(tok, "\0");
+    assert_int_equal(*p, '\0');
+
+    /* correctly parses even key=value pairs with either one in quotes */
+    strncpy(data, "  key=\"value with spaces\" \n", sizeof(data));
+    p = data;
+    tok = ssh_config_get_token(&p);
+    assert_string_equal(tok, "key");
+    assert_int_equal(*p, '\"');
+    tok = ssh_config_get_token(&p);
+    assert_string_equal(tok, "value with spaces");
+    assert_int_equal(*p, ' ');
+    tok = ssh_config_get_token(&p);
+    assert_string_equal(tok, "\0");
+    assert_int_equal(*p, '\0');
+}
+
 /* match_pattern() sanity tests
  */
 static void torture_config_match_pattern(void **state)
@@ -1005,6 +1169,8 @@ int torture_run_tests(void) {
         cmocka_unit_test(torture_config_proxyjump),
         cmocka_unit_test(torture_config_rekey),
         cmocka_unit_test(torture_config_pubkeyacceptedkeytypes),
+        cmocka_unit_test(torture_config_parser_get_cmd),
+        cmocka_unit_test(torture_config_parser_get_token),
         cmocka_unit_test(torture_config_match_pattern),
     };
 

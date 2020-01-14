@@ -103,6 +103,9 @@
 /* Define to 1 if you have OpenSSL with X25519 support */
 #cmakedefine HAVE_OPENSSL_X25519 1
 
+/* Define to 1 if you have gcrypt with ChaCha20/Poly1305 support */
+#cmakedefine HAVE_GCRYPT_CHACHA_POLY 1
+
 /*************************** FUNCTIONS ***************************/
 
 /* Define to 1 if you have the `EVP_aes128_ctr' function. */
@@ -277,6 +280,9 @@
 
 /* Define to 1 if you want to enable NaCl support */
 #cmakedefine WITH_NACL 1
+
+/* Define to 1 if you want to enable PKCS #11 URI support */
+#cmakedefine WITH_PKCS11_URI 1
 
 /*************************** ENDIAN *****************************/
 
