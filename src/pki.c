@@ -4,6 +4,7 @@
  *
  * Copyright (c) 2010 by Aris Adamantiadis
  * Copyright (c) 2011-2013 Andreas Schneider <asn@cryptomilk.org>
+ * Copyright (c) 2019      Sahana Prasad     <sahana@redhat.com>
  *
  * The SSH Library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -63,6 +64,8 @@
 #include "libssh/buffer.h"
 #include "libssh/misc.h"
 #include "libssh/agent.h"
+
+#define PKCS11_URI "pkcs11:"
 
 enum ssh_keytypes_e pki_privatekey_type_from_string(const char *privkey)
 {
@@ -862,6 +865,13 @@ int ssh_pki_import_privkey_file(const char *filename,
         return SSH_ERROR;
     }
 
+#ifdef WITH_PKCS11_URI
+    if (ssh_pki_is_uri(filename)) {
+        rc = pki_uri_import(filename, pkey, SSH_KEY_PRIVATE);
+        return rc;
+    }
+#endif
+
     file = fopen(filename, "rb");
     if (file == NULL) {
         SSH_LOG(SSH_LOG_WARN,
@@ -1569,6 +1579,47 @@ fail:
 }
 
 /**
+ *@brief Detect if the pathname in cmp is a PKCS #11 URI.
+ *
+ * @param[in] cmp The path to the public/private key
+ *                     or a private/public PKCS #11 URI.
+ *
+ * @returns true if filename is a URI starting with "pkcs11:"
+ *          false otherwise.
+ */
+bool ssh_pki_is_uri(const char *cmp)
+{
+    int rc;
+
+    rc = strncmp(cmp, PKCS11_URI, strlen(PKCS11_URI));
+    if (rc == 0) {
+        return true;
+    }
+
+    return false;
+}
+
+/**
+ *@brief export a Public PKCS #11 URI from a Private PKCS #11 URI
+ *       by replacing "type=private" to "type=public".
+ *       TODO: Improve the parser
+ *
+ * @param[in] priv_uri Private PKCS #11 URI.
+ *
+ * @returns pointer to the public PKCS #11 URI
+ */
+char *ssh_pki_export_pub_uri_from_priv_uri(const char *priv_uri)
+{
+    char *pub_uri_temp = NULL;
+
+    pub_uri_temp = ssh_strreplace(priv_uri,
+                                  "type=private",
+                                  "type=public");
+
+    return pub_uri_temp;
+}
+
+/**
  * @brief Import a public key from the given filename.
  *
  * @param[in]  filename The path to the public key.
@@ -1595,6 +1646,13 @@ int ssh_pki_import_pubkey_file(const char *filename, ssh_key *pkey)
     if (pkey == NULL || filename == NULL || *filename == '\0') {
         return SSH_ERROR;
     }
+
+#ifdef WITH_PKCS11_URI
+    if (ssh_pki_is_uri(filename)) {
+        rc = pki_uri_import(filename, pkey, SSH_KEY_PUBLIC);
+        return rc;
+    }
+#endif
 
     file = fopen(filename, "rb");
     if (file == NULL) {
