@@ -15,8 +15,6 @@ if (DOXYGEN_FOUND)
     set(DOXYGEN_MARKDOWN_SUPPORT YES)
 
     set(DOXYGEN_PREDEFINED DOXYGEN
-                           WITH_SERVER
-                           WITH_SFTP
                            PRINTF_ATTRIBUTE(x,y))
 
     set(DOXYGEN_EXCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/that_style)
