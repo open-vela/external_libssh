@@ -285,7 +285,9 @@ static int stop_server(void **state)
     assert_non_null(s);
 
     rc = torture_terminate_process(s->srv_pidfile);
-    assert_return_code(rc, errno);
+    if (rc != 0) {
+        fprintf(stderr, "XXXXXX Failed to terminate sshd\n");
+    }
 
     unlink(s->srv_pidfile);
 

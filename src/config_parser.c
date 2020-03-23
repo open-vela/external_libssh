@@ -31,11 +31,6 @@
 #include "libssh/config_parser.h"
 #include "libssh/priv.h"
 
-/* Returns the original string after skipping the leading whitespace
- * and optional quotes.
- * This is useful in case we need to get the rest of the line (for example
- * external command).
- */
 char *ssh_config_get_cmd(char **str)
 {
     register char *c;
@@ -70,34 +65,15 @@ out:
     return r;
 }
 
-/* Returns the next token delimited by whitespace or equal sign (=)
- * respecting the quotes creating separate token (including whitespaces).
- */
 char *ssh_config_get_token(char **str)
 {
     register char *c;
     char *r;
 
-    /* Ignore leading spaces */
-    for (c = *str; *c; c++) {
-        if (! isblank(*c)) {
-            break;
-        }
-    }
+    c = ssh_config_get_cmd(str);
 
-    /* If we start with quote, return the whole quoted block */
-    if (*c == '\"') {
-        for (r = ++c; *c; c++) {
-            if (*c == '\"') {
-                *c = '\0';
-                goto out;
-            }
-        }
-    }
-
-    /* Otherwise terminate on space, equal or newline */
     for (r = c; *c; c++) {
-        if (isblank(*c) || *c == '=' || *c == '\n') {
+        if (isblank(*c) || *c == '=') {
             *c = '\0';
             goto out;
         }
