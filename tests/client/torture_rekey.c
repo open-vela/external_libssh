@@ -269,7 +269,6 @@ static void torture_rekey_recv(void **state)
     int fd;
     sftp_file file;
     mode_t mask;
-    int rc;
 
     /* The blocks limit is set correctly */
     c = s->ssh.session->current_crypto;
@@ -284,7 +283,7 @@ static void torture_rekey_recv(void **state)
     memcpy(secret_hash, c->secret_hash, c->digest_len);
 
     /* Download a file */
-    file = sftp_open(s->ssh.tsftp->sftp, SSH_EXECUTABLE, O_RDONLY, 0);
+    file = sftp_open(s->ssh.tsftp->sftp, "/usr/bin/ssh", O_RDONLY, 0);
     assert_non_null(file);
 
     mask = umask(S_IRWXO | S_IRWXG);
@@ -303,8 +302,6 @@ static void torture_rekey_recv(void **state)
         assert_int_equal(byteswritten, bytesread);
     }
 
-    rc = sftp_close(file);
-    assert_int_equal(rc, SSH_NO_ERROR);
     close(fd);
 
     /* The rekey limit was restored in the new crypto to the same value */
@@ -468,7 +465,6 @@ static void torture_rekey_server_recv(void **state)
     int fd;
     sftp_file file;
     mode_t mask;
-    int rc;
 
     /* Copy the initial secret hash = session_id so we know we changed keys later */
     c = s->ssh.session->current_crypto;
@@ -477,7 +473,7 @@ static void torture_rekey_server_recv(void **state)
     memcpy(secret_hash, c->secret_hash, c->digest_len);
 
     /* Download a file */
-    file = sftp_open(s->ssh.tsftp->sftp, SSH_EXECUTABLE, O_RDONLY, 0);
+    file = sftp_open(s->ssh.tsftp->sftp, "/usr/bin/ssh", O_RDONLY, 0);
     assert_non_null(file);
 
     mask = umask(S_IRWXO | S_IRWXG);
@@ -496,8 +492,6 @@ static void torture_rekey_server_recv(void **state)
         assert_int_equal(byteswritten, bytesread);
     }
 
-    rc = sftp_close(file);
-    assert_int_equal(rc, SSH_NO_ERROR);
     close(fd);
 
     /* Check that the secret hash is different than initially */
