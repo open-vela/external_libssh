@@ -52,7 +52,6 @@ static int session_setup(void **state)
 {
     struct torture_state *s = *state;
     int verbosity = torture_libssh_verbosity();
-    const char *all_keytypes = NULL;
     struct passwd *pwd;
     bool b = false;
     int rc;
@@ -70,11 +69,6 @@ static int session_setup(void **state)
     ssh_options_set(s->ssh.session, SSH_OPTIONS_HOST, TORTURE_SSH_SERVER);
     /* Make sure no other configuration options from system will get used */
     rc = ssh_options_set(s->ssh.session, SSH_OPTIONS_PROCESS_CONFIG, &b);
-    assert_ssh_return_code(s->ssh.session, rc);
-
-    /* Enable all hostkeys */
-    all_keytypes = ssh_kex_get_supported_method(SSH_HOSTKEYS);
-    rc = ssh_options_set(s->ssh.session, SSH_OPTIONS_PUBLICKEY_ACCEPTED_TYPES, all_keytypes);
     assert_ssh_return_code(s->ssh.session, rc);
 
     return 0;
@@ -200,8 +194,7 @@ static int agent_teardown(void **state)
     assert_non_null(ssh_agent_pidfile);
 
     /* kill agent pid */
-    rc = torture_terminate_process(ssh_agent_pidfile);
-    assert_return_code(rc, errno);
+    torture_terminate_process(ssh_agent_pidfile);
 
     unlink(ssh_agent_pidfile);
 
