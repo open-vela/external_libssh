@@ -6,7 +6,7 @@ set(examples_SRCS
   connect_ssh.c
 )
 
-include_directories(${libssh_BINARY_DIR})
+include_directories(${libssh_BINARY_DIR}/include ${libssh_BINARY_DIR})
 
 if (ARGP_INCLUDE_DIR)
     include_directories(${ARGP_INCLUDE_DIR})
@@ -59,6 +59,10 @@ if (UNIX AND NOT WIN32)
         add_executable(samplesshd-kbdint samplesshd-kbdint.c)
         target_compile_options(samplesshd-kbdint PRIVATE ${DEFAULT_C_COMPILE_FLAGS})
         target_link_libraries(samplesshd-kbdint ssh::ssh ${ARGP_LIBRARY})
+
+        add_executable(keygen2 keygen2.c ${examples_SRCS})
+        target_compile_options(keygen2 PRIVATE ${DEFAULT_C_COMPILE_FLAGS})
+        target_link_libraries(keygen2 ssh::ssh)
 
     endif()
 endif (UNIX AND NOT WIN32)
