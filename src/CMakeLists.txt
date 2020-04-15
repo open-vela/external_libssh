@@ -143,6 +143,9 @@ set(libssh_SRCS
   wrapper.c
   external/bcrypt_pbkdf.c
   external/blowfish.c
+  external/chacha.c
+  external/poly1305.c
+  chachapoly.c
   config_parser.c
   token.c
   pki_ed25519_common.c
@@ -188,14 +191,6 @@ if (WITH_GCRYPT)
         external/ge25519.c
         external/sc25519.c
        )
-    if (NOT HAVE_GCRYPT_CHACHA_POLY)
-        set(libssh_SRCS
-            ${libssh_SRCS}
-            external/chacha.c
-            external/poly1305.c
-            chachapoly.c
-        )
-    endif (NOT HAVE_GCRYPT_CHACHA_POLY)
 elseif (WITH_MBEDTLS)
     set(libssh_SRCS
         ${libssh_SRCS}
@@ -210,9 +205,6 @@ elseif (WITH_MBEDTLS)
         external/fe25519.c
         external/ge25519.c
         external/sc25519.c
-        external/chacha.c
-        external/poly1305.c
-        chachapoly.c
        )
 else (WITH_GCRYPT)
     set(libssh_SRCS
@@ -233,14 +225,6 @@ else (WITH_GCRYPT)
             external/sc25519.c
            )
     endif (NOT HAVE_OPENSSL_ED25519)
-    if (NOT (HAVE_OPENSSL_EVP_CHACHA20 AND HAVE_OPENSSL_EVP_POLY1305))
-        set(libssh_SRCS
-            ${libssh_SRCS}
-            external/chacha.c
-            external/poly1305.c
-            chachapoly.c
-        )
-    endif (NOT (HAVE_OPENSSL_EVP_CHACHA20 AND HAVE_OPENSSL_EVP_POLY1305))
     if(OPENSSL_VERSION VERSION_LESS "1.1.0")
         set(libssh_SRCS ${libssh_SRCS} libcrypto-compat.c)
     endif()
