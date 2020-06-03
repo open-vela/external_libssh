@@ -73,14 +73,9 @@ sftp_client_message sftp_get_client_message(sftp_session sftp) {
       return NULL;
   }
 
-  rc = ssh_buffer_add_data(msg->complete_message,
-                           ssh_buffer_get(payload),
-                           ssh_buffer_get_len(payload));
-  if (rc < 0) {
-      ssh_set_error_oom(session);
-      sftp_client_message_free(msg);
-      return NULL;
-  }
+  ssh_buffer_add_data(msg->complete_message,
+                      ssh_buffer_get(payload),
+                      ssh_buffer_get_len(payload));
 
   ssh_buffer_get_u32(payload, &msg->id);
 
