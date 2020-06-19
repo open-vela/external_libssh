@@ -574,9 +574,13 @@ static void torture_knownhosts_algorithms(void **state)
     char *algo_list = NULL;
     ssh_session session;
     bool process_config = false;
-    const char *expect = "ssh-ed25519,rsa-sha2-512,rsa-sha2-256,"
+    const char *expect = "ssh-ed25519,rsa-sha2-512,rsa-sha2-256,ssh-rsa,"
                          "ecdsa-sha2-nistp521,ecdsa-sha2-nistp384,"
-                         "ecdsa-sha2-nistp256";
+                         "ecdsa-sha2-nistp256"
+#ifdef HAVE_DSA
+                         ",ssh-dss"
+#endif
+    ;
     const char *expect_fips = "rsa-sha2-512,rsa-sha2-256,ecdsa-sha2-nistp521,"
                               "ecdsa-sha2-nistp384,ecdsa-sha2-nistp256";
 
@@ -609,9 +613,13 @@ static void torture_knownhosts_algorithms_global(void **state)
     char *algo_list = NULL;
     ssh_session session;
     bool process_config = false;
-    const char *expect = "ssh-ed25519,rsa-sha2-512,rsa-sha2-256,"
+    const char *expect = "ssh-ed25519,rsa-sha2-512,rsa-sha2-256,ssh-rsa,"
                          "ecdsa-sha2-nistp521,ecdsa-sha2-nistp384,"
-                         "ecdsa-sha2-nistp256";
+                         "ecdsa-sha2-nistp256"
+#ifdef HAVE_DSA
+                         ",ssh-dss"
+#endif
+    ;
     const char *expect_fips = "rsa-sha2-512,rsa-sha2-256,ecdsa-sha2-nistp521,"
                               "ecdsa-sha2-nistp384,ecdsa-sha2-nistp256";
 
