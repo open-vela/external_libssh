@@ -10,7 +10,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules")
 include(DefineCMakeDefaults)
 include(DefineCompilerFlags)
 
-project(libssh VERSION 0.9.4 LANGUAGES C)
+project(libssh VERSION 0.8.90 LANGUAGES C)
 
 # global needed variable
 set(APPLICATION_NAME ${PROJECT_NAME})
@@ -22,7 +22,7 @@ set(APPLICATION_NAME ${PROJECT_NAME})
 #     Increment AGE. Set REVISION to 0
 #   If the source code was changed, but there were no interface changes:
 #     Increment REVISION.
-set(LIBRARY_VERSION "4.8.5")
+set(LIBRARY_VERSION "4.8.1")
 set(LIBRARY_SOVERSION "4")
 
 # where to look first for cmake modules, before ${CMAKE_ROOT}/Modules/ is checked
@@ -82,6 +82,13 @@ find_package(Threads)
 if (WITH_GSSAPI)
     find_package(GSSAPI)
 endif (WITH_GSSAPI)
+
+if (WITH_PKCS11_URI)
+    find_package(softhsm)
+    if (NOT SOFTHSM_FOUND)
+        message(SEND_ERROR "Could not find softhsm module!")
+     endif (NOT SOFTHSM_FOUND)
+endif (WITH_PKCS11_URI)
 
 if (WITH_NACL)
     find_package(NaCl)
@@ -221,11 +228,14 @@ message(STATUS "SFTP support: ${WITH_SFTP}")
 message(STATUS "Server support : ${WITH_SERVER}")
 message(STATUS "GSSAPI support : ${WITH_GSSAPI}")
 message(STATUS "GEX support : ${WITH_GEX}")
+message(STATUS "Support insecure none cipher and MAC : ${WITH_INSECURE_NONE}")
 message(STATUS "Pcap debugging support : ${WITH_PCAP}")
 message(STATUS "Build shared library: ${BUILD_SHARED_LIBS}")
 message(STATUS "Unit testing: ${UNIT_TESTING}")
 message(STATUS "Client code testing: ${CLIENT_TESTING}")
 message(STATUS "Blowfish cipher support: ${WITH_BLOWFISH_CIPHER}")
+message(STATUS "PKCS #11 URI support: ${WITH_PKCS11_URI}")
+message(STATUS "DSA support: ${WITH_DSA}")
 set(_SERVER_TESTING OFF)
 if (WITH_SERVER)
     set(_SERVER_TESTING ${SERVER_TESTING})
