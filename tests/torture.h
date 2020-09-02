@@ -54,7 +54,6 @@
 #define TORTURE_SSH_USER_BOB_PASSWORD "secret"
 
 #define TORTURE_SSH_USER_ALICE "alice"
-#define TORTURE_SSH_USER_CHARLIE "charlie"
 
 /* Used by main to communicate with parse_opt. */
 struct argument_s {
@@ -82,7 +81,6 @@ struct torture_state {
 #ifdef WITH_PCAP
     ssh_pcap_file plain_pcap;
 #endif
-    void *private_data;
 };
 
 #ifndef ZERO_STRUCT
@@ -125,10 +123,6 @@ int torture_server_port(void);
 
 void torture_setup_socket_dir(void **state);
 void torture_setup_sshd_server(void **state, bool pam);
-void torture_setup_tokens(const char *temp_dir,
-                          const char *filename,
-                          const char object_name[],
-                          const char *load_public);
 
 void torture_teardown_socket_dir(void **state);
 void torture_teardown_sshd_server(void **state);
@@ -136,10 +130,6 @@ void torture_teardown_sshd_server(void **state);
 int torture_update_sshd_config(void **state, const char *config);
 
 void torture_reset_config(ssh_session session);
-
-void torture_setup_create_libssh_config(void **state);
-
-void torture_setup_libssh_server(void **state, const char *server_path);
 
 /*
  * This function must be defined in every unit test file.
