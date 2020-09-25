@@ -32,6 +32,9 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdint.h>
+#ifdef HAVE_SYS_TIME_H
+#include <sys/time.h>
+#endif /* HAVE_SYS_TIME_H */
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <limits.h>
@@ -55,7 +58,6 @@
 
 /* Buffer size maximum is 256M */
 #define SFTP_PACKET_SIZE_MAX 0x10000000
-#define SFTP_BUFFER_SIZE_MAX 16384
 
 struct sftp_ext_struct {
   uint32_t count;
@@ -173,95 +175,69 @@ error:
     return NULL;
 }
 
-sftp_session
-sftp_new_channel(ssh_session session, ssh_channel channel)
-{
-    sftp_session sftp = NULL;
+sftp_session sftp_new_channel(ssh_session session, ssh_channel channel){
+  sftp_session sftp;
 
-    if (session == NULL) {
-        return NULL;
-    }
-
-    sftp = calloc(1, sizeof(struct sftp_session_struct));
-    if (sftp == NULL) {
-        ssh_set_error_oom(session);
-        return NULL;
-    }
-
-    sftp->ext = sftp_ext_new();
-    if (sftp->ext == NULL) {
-        ssh_set_error_oom(session);
-        goto error;
-    }
-
-    sftp->read_packet = calloc(1, sizeof(struct sftp_packet_struct));
-    if (sftp->read_packet == NULL) {
-        ssh_set_error_oom(session);
-        goto error;
-    }
-
-    sftp->read_packet->payload = ssh_buffer_new();
-    if (sftp->read_packet->payload == NULL) {
-        ssh_set_error_oom(session);
-        goto error;
-    }
-
-    sftp->session = session;
-    sftp->channel = channel;
-
-    return sftp;
-
-error:
-    if (sftp->ext != NULL) {
-        sftp_ext_free(sftp->ext);
-    }
-    if (sftp->read_packet != NULL) {
-        if (sftp->read_packet->payload != NULL) {
-            SSH_BUFFER_FREE(sftp->read_packet->payload);
-        }
-        SAFE_FREE(sftp->read_packet);
-    }
-    SAFE_FREE(sftp);
+  if (session == NULL) {
     return NULL;
+  }
+
+  sftp = calloc(1, sizeof(struct sftp_session_struct));
+  if (sftp == NULL) {
+    ssh_set_error_oom(session);
+
+    return NULL;
+  }
+
+  sftp->ext = sftp_ext_new();
+  if (sftp->ext == NULL) {
+    ssh_set_error_oom(session);
+    SAFE_FREE(sftp);
+
+    return NULL;
+  }
+
+  sftp->session = session;
+  sftp->channel = channel;
+
+  return sftp;
 }
 
 #ifdef WITH_SERVER
-sftp_session
-sftp_server_new(ssh_session session, ssh_channel chan)
-{
-    sftp_session sftp = NULL;
+sftp_session sftp_server_new(ssh_session session, ssh_channel chan){
+  sftp_session sftp = NULL;
 
-    sftp = calloc(1, sizeof(struct sftp_session_struct));
-    if (sftp == NULL) {
-        ssh_set_error_oom(session);
-        return NULL;
-    }
+  sftp = calloc(1, sizeof(struct sftp_session_struct));
+  if (sftp == NULL) {
+    ssh_set_error_oom(session);
+    return NULL;
+  }
 
-    sftp->read_packet = calloc(1, sizeof(struct sftp_packet_struct));
-    if (sftp->read_packet == NULL) {
-        goto error;
-    }
+  sftp->read_packet = calloc(1, sizeof(struct sftp_packet_struct));
+  if (sftp->read_packet == NULL) {
+    goto error;
+  }
 
-    sftp->read_packet->payload = ssh_buffer_new();
-    if (sftp->read_packet->payload == NULL) {
-        goto error;
-    }
+  sftp->read_packet->payload = ssh_buffer_new();
+  if (sftp->read_packet->payload == NULL) {
+    goto error;
+  }
 
-    sftp->session = session;
-    sftp->channel = chan;
+  sftp->session = session;
+  sftp->channel = chan;
 
-    return sftp;
+  return sftp;
 
 error:
-    ssh_set_error_oom(session);
-    if (sftp->read_packet != NULL) {
-        if (sftp->read_packet->payload != NULL) {
-            SSH_BUFFER_FREE(sftp->read_packet->payload);
-        }
-        SAFE_FREE(sftp->read_packet);
+  ssh_set_error_oom(session);
+  if (sftp->read_packet != NULL) {
+    if (sftp->read_packet->payload != NULL) {
+      SSH_BUFFER_FREE(sftp->read_packet->payload);
     }
-    SAFE_FREE(sftp);
-    return NULL;
+    SAFE_FREE(sftp->read_packet);
+  }
+  SAFE_FREE(sftp);
+  return NULL;
 }
 
 int sftp_server_init(sftp_session sftp){
@@ -424,7 +400,8 @@ ssize_t sftp_packet_write(sftp_session sftp, uint8_t type, ssh_buffer payload)
 
 sftp_packet sftp_packet_read(sftp_session sftp)
 {
-    uint8_t buffer[SFTP_BUFFER_SIZE_MAX];
+    uint8_t tmpbuf[4];
+    uint8_t *buffer = tmpbuf;
     sftp_packet packet = sftp->read_packet;
     uint32_t size;
     int nread;
@@ -503,29 +480,22 @@ sftp_packet sftp_packet_read(sftp_session sftp)
     /* Remove the packet type size */
     size -= sizeof(uint8_t);
 
-    nread = ssh_buffer_allocate_size(packet->payload, size);
-    if (nread < 0) {
+    buffer = ssh_buffer_allocate(packet->payload, size);
+    if (buffer == NULL) {
         ssh_set_error_oom(sftp->session);
         sftp_set_error(sftp, SSH_FX_FAILURE);
         goto error;
     }
     while (size > 0 && size < SFTP_PACKET_SIZE_MAX) {
-        nread = ssh_channel_read(sftp->channel,
-                             buffer,
-                             sizeof(buffer) > size ? size : sizeof(buffer),
-                             0);
+        nread = ssh_channel_read(sftp->channel, buffer, size, 0);
         if (nread < 0) {
             /* TODO: check if there are cases where an error needs to be set here */
             goto error;
         }
 
         if (nread > 0) {
-            rc = ssh_buffer_add_data(packet->payload, buffer, nread);
-            if (rc != 0) {
-                ssh_set_error_oom(sftp->session);
-                sftp_set_error(sftp, SSH_FX_FAILURE);
-                goto error;
-            }
+            buffer += nread;
+            size -= nread;
         } else { /* nread == 0 */
             /* Retry the reading unless the remote was closed */
             is_eof = ssh_channel_is_eof(sftp->channel);
@@ -537,8 +507,6 @@ sftp_packet sftp_packet_read(sftp_session sftp)
                 goto error;
             }
         }
-
-        size -= nread;
     }
 
     return packet;
@@ -1295,7 +1263,7 @@ static char *sftp_parse_longname(const char *longname,
     size_t len, field = 0;
 
     p = longname;
-    /* Find the beginning of the field which is specified by sftp_longname_field_e. */
+    /* Find the beginning of the field which is specified by sftp_longanme_field_e. */
     while(field != longname_field) {
         if(isspace(*p)) {
             field++;
@@ -2008,7 +1976,7 @@ ssize_t sftp_read(sftp_file handle, void *buf, size_t count) {
       if (datalen > count) {
         ssh_set_error(sftp->session, SSH_FATAL,
             "Received a too big DATA packet from sftp server: "
-            "%zu and asked for %zu",
+            "%" PRIdS " and asked for %" PRIdS,
             datalen, count);
         SSH_STRING_FREE(datastring);
         return -1;
@@ -2130,7 +2098,7 @@ int sftp_async_read(sftp_file file, void *data, uint32_t size, uint32_t id){
       if (ssh_string_len(datastring) > size) {
         ssh_set_error(sftp->session, SSH_FATAL,
             "Received a too big DATA packet from sftp server: "
-            "%zu and asked for %u",
+            "%" PRIdS " and asked for %u",
             ssh_string_len(datastring), size);
         SSH_STRING_FREE(datastring);
         return SSH_ERROR;
