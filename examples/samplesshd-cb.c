@@ -25,6 +25,10 @@ clients must be made or how a client should react.
 #include <string.h>
 #include <stdio.h>
 
+#ifndef BUF_SIZE
+#define BUF_SIZE 2048
+#endif
+
 #ifndef KEYS_FOLDER
 #ifdef _WIN32
 #define KEYS_FOLDER
@@ -165,14 +169,6 @@ static struct argp_option options[] = {
         .doc   = "Get verbose output.",
         .group = 0
     },
-    {
-        .name  = "config",
-        .key   = 'f',
-        .arg   = "FILE",
-        .flags = 0,
-        .doc   = "Configuration file to use.",
-        .group = 0
-    },
     {NULL, 0, NULL, 0, NULL, 0}
 };
 
@@ -198,9 +194,6 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state) {
             break;
         case 'v':
             ssh_bind_options_set(sshbind, SSH_BIND_OPTIONS_LOG_VERBOSITY_STR, "3");
-            break;
-        case 'f':
-            ssh_bind_options_parse_config(sshbind, arg);
             break;
         case ARGP_KEY_ARG:
             if (state->arg_num >= 1) {
@@ -237,7 +230,7 @@ int main(int argc, char **argv){
         .channel_open_request_session_function = new_session_channel
     };
 
-    char buf[2048];
+    char buf[BUF_SIZE];
     int i;
     int r;
 
@@ -293,7 +286,7 @@ int main(int argc, char **argv){
     } else
         printf("Authenticated and got a channel\n");
     do{
-        i=ssh_channel_read(chan,buf, 2048, 0);
+        i=ssh_channel_read(chan,buf, sizeof(buf), 0);
         if(i>0) {
             ssh_channel_write(chan, buf, i);
             if (write(1,buf,i) < 0) {
