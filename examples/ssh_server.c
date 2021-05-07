@@ -722,6 +722,7 @@ int main(int argc, char **argv) {
     sshbind = ssh_bind_new();
     if (sshbind == NULL) {
         fprintf(stderr, "ssh_bind_new failed\n");
+        ssh_finalize();
         return 1;
     }
 
@@ -736,6 +737,8 @@ int main(int argc, char **argv) {
 
     if(ssh_bind_listen(sshbind) < 0) {
         fprintf(stderr, "%s\n", ssh_get_error(sshbind));
+        ssh_bind_free(sshbind);
+        ssh_finalize();
         return 1;
     }
 
