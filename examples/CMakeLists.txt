@@ -37,9 +37,9 @@ if (UNIX AND NOT WIN32)
 
     if (WITH_SERVER AND (ARGP_LIBRARY OR HAVE_ARGP_H))
         if (HAVE_LIBUTIL)
-            add_executable(ssh_server ssh_server.c)
-            target_compile_options(ssh_server PRIVATE ${DEFAULT_C_COMPILE_FLAGS} -D_GNU_SOURCE)
-            target_link_libraries(ssh_server ssh::ssh ${ARGP_LIBRARY} pthread util)
+            add_executable(ssh_server_fork ssh_server_fork.c)
+            target_compile_options(ssh_server_fork PRIVATE ${DEFAULT_C_COMPILE_FLAGS})
+            target_link_libraries(ssh_server_fork ssh::ssh ${ARGP_LIBRARY} util)
         endif (HAVE_LIBUTIL)
 
         if (WITH_GSSAPI AND GSSAPI_FOUND)
@@ -59,6 +59,10 @@ if (UNIX AND NOT WIN32)
         add_executable(samplesshd-kbdint samplesshd-kbdint.c)
         target_compile_options(samplesshd-kbdint PRIVATE ${DEFAULT_C_COMPILE_FLAGS})
         target_link_libraries(samplesshd-kbdint ssh::ssh ${ARGP_LIBRARY})
+
+        add_executable(keygen2 keygen2.c ${examples_SRCS})
+        target_compile_options(keygen2 PRIVATE ${DEFAULT_C_COMPILE_FLAGS})
+        target_link_libraries(keygen2 ssh::ssh)
 
     endif()
 endif (UNIX AND NOT WIN32)
