@@ -5,6 +5,7 @@
  *
  * Copyright (c) 2003-2009 by Aris Adamantiadis
  * Copyright (c) 2009-2013 by Andreas Schneider <asn@cryptomilk.org>
+ * Copyright (c) 2019      by Sahana Prasad     <sahana@redhat.com>
  *
  * The SSH Library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -32,6 +33,8 @@
 #include <openssl/pem.h>
 #include <openssl/dsa.h>
 #include <openssl/err.h>
+#include <openssl/engine.h>
+#include <openssl/evp.h>
 #include <openssl/rsa.h>
 #include "libcrypto-compat.h"
 
@@ -297,6 +300,10 @@ ssh_key pki_key_dup(const ssh_key key, int demote)
         return NULL;
     }
 
+#ifdef WITH_PKCS11_URI
+    new->key = key->key;
+#endif
+
     new->type = key->type;
     new->type_c = key->type_c;
     if (demote) {
@@ -536,7 +543,6 @@ int pki_key_generate_rsa(ssh_key key, int parameter){
 
 int pki_key_generate_dss(ssh_key key, int parameter){
     int rc;
-#if OPENSSL_VERSION_NUMBER > 0x00908000L
     key->dsa = DSA_new();
     if (key->dsa == NULL) {
         return SSH_ERROR;
@@ -553,13 +559,6 @@ int pki_key_generate_dss(ssh_key key, int parameter){
         key->dsa = NULL;
         return SSH_ERROR;
     }
-#else
-    key->dsa = DSA_generate_parameters(parameter, NULL, 0, NULL, NULL,
-            NULL, NULL);
-    if(key->dsa == NULL){
-        return SSH_ERROR;
-    }
-#endif
     rc = DSA_generate_key(key->dsa);
     if (rc != 1){
         DSA_free(key->dsa);
@@ -675,6 +674,7 @@ int pki_key_compare(const ssh_key k1,
         case SSH_KEYTYPE_ECDSA_P256:
         case SSH_KEYTYPE_ECDSA_P384:
         case SSH_KEYTYPE_ECDSA_P521:
+        case SSH_KEYTYPE_SK_ECDSA:
 #ifdef HAVE_OPENSSL_ECC
             {
                 const EC_POINT *p1 = EC_KEY_get0_public_key(k1->ecdsa);
@@ -705,6 +705,7 @@ int pki_key_compare(const ssh_key k1,
             }
 #endif
         case SSH_KEYTYPE_ED25519:
+        case SSH_KEYTYPE_SK_ED25519:
             /* ed25519 keys handled globaly */
         case SSH_KEYTYPE_UNKNOWN:
         default:
@@ -831,7 +832,12 @@ ssh_string pki_private_key_to_pem(const ssh_key key,
         goto err;
     }
 
-    ssh_string_fill(blob, buf->data, buf->length);
+    rc = ssh_string_fill(blob, buf->data, buf->length);
+    if (rc < 0) {
+        ssh_string_free(blob);
+        goto err;
+    }
+
     BIO_free(mem);
 
     return blob;
@@ -1293,14 +1299,20 @@ ssh_string pki_publickey_to_blob(const ssh_key key)
             break;
         }
         case SSH_KEYTYPE_ED25519:
+        case SSH_KEYTYPE_SK_ED25519:
             rc = pki_ed25519_public_key_to_blob(buffer, key);
             if (rc == SSH_ERROR){
+                goto fail;
+            }
+            if (key->type == SSH_KEYTYPE_SK_ED25519 &&
+                ssh_buffer_add_ssh_string(buffer, key->sk_application) < 0) {
                 goto fail;
             }
             break;
         case SSH_KEYTYPE_ECDSA_P256:
         case SSH_KEYTYPE_ECDSA_P384:
         case SSH_KEYTYPE_ECDSA_P521:
+        case SSH_KEYTYPE_SK_ECDSA:
 #ifdef HAVE_OPENSSL_ECC
             type_s = ssh_string_from_char(pki_key_ecdsa_nid_to_char(key->ecdsa_nid));
             if (type_s == NULL) {
@@ -1315,6 +1327,14 @@ ssh_string pki_publickey_to_blob(const ssh_key key)
                 return NULL;
             }
 
+#ifdef WITH_PKCS11_URI
+            if (ssh_key_is_private(key) && !EC_KEY_get0_public_key(key->ecdsa)) {
+                SSH_LOG(SSH_LOG_INFO, "It is mandatory to have separate public"
+                        " ECDSA key objects in the PKCS #11 device. Unlike RSA,"
+                        " ECDSA public keys cannot be derived from their private keys.");
+                goto fail;
+            }
+#endif
             e = make_ecpoint_string(EC_KEY_get0_group(key->ecdsa),
                                     EC_KEY_get0_public_key(key->ecdsa));
             if (e == NULL) {
@@ -1330,6 +1350,11 @@ ssh_string pki_publickey_to_blob(const ssh_key key)
             ssh_string_burn(e);
             SSH_STRING_FREE(e);
             e = NULL;
+
+            if (key->type == SSH_KEYTYPE_SK_ECDSA &&
+                ssh_buffer_add_ssh_string(buffer, key->sk_application) < 0) {
+                goto fail;
+            }
 
             break;
 #endif
@@ -1383,6 +1408,7 @@ static ssh_string pki_dsa_signature_to_blob(const ssh_signature sig)
 
     const unsigned char *raw_sig_data = NULL;
     size_t raw_sig_len;
+    int rc;
 
     DSA_SIG *dsa_sig;
 
@@ -1439,7 +1465,11 @@ static ssh_string pki_dsa_signature_to_blob(const ssh_signature sig)
         return NULL;
     }
 
-    ssh_string_fill(sig_blob, buffer, 40);
+    rc = ssh_string_fill(sig_blob, buffer, 40);
+    if (rc < 0) {
+        SSH_STRING_FREE(sig_blob);
+        return NULL;
+    }
 
     return sig_blob;
 
@@ -1516,7 +1546,10 @@ static ssh_string pki_ecdsa_signature_to_blob(const ssh_signature sig)
         goto error;
     }
 
-    ssh_string_fill(sig_blob, ssh_buffer_get(buf), ssh_buffer_get_len(buf));
+    rc = ssh_string_fill(sig_blob, ssh_buffer_get(buf), ssh_buffer_get_len(buf));
+    if (rc < 0) {
+        goto error;
+    }
 
     SSH_STRING_FREE(r);
     SSH_STRING_FREE(s);
@@ -1526,6 +1559,7 @@ static ssh_string pki_ecdsa_signature_to_blob(const ssh_signature sig)
     return sig_blob;
 
 error:
+    SSH_STRING_FREE(sig_blob);
     SSH_STRING_FREE(r);
     SSH_STRING_FREE(s);
     ECDSA_SIG_free(ecdsa_sig);
@@ -1670,7 +1704,11 @@ static int pki_signature_from_dsa_blob(UNUSED_PARAM(const ssh_key pubkey),
     if (r == NULL) {
         goto error;
     }
-    ssh_string_fill(r, ssh_string_data(sig_blob), 20);
+    rc = ssh_string_fill(r, ssh_string_data(sig_blob), 20);
+    if (rc < 0) {
+        SSH_STRING_FREE(r);
+        goto error;
+    }
 
     pr = ssh_make_string_bn(r);
     ssh_string_burn(r);
@@ -1683,7 +1721,11 @@ static int pki_signature_from_dsa_blob(UNUSED_PARAM(const ssh_key pubkey),
     if (s == NULL) {
         goto error;
     }
-    ssh_string_fill(s, (char *)ssh_string_data(sig_blob) + 20, 20);
+    rc = ssh_string_fill(s, (char *)ssh_string_data(sig_blob) + 20, 20);
+    if (rc < 0) {
+        SSH_STRING_FREE(s);
+        goto error;
+    }
 
     ps = ssh_make_string_bn(s);
     ssh_string_burn(s);
@@ -1930,6 +1972,7 @@ ssh_signature pki_signature_from_blob(const ssh_key pubkey,
             }
             break;
         case SSH_KEYTYPE_ED25519:
+        case SSH_KEYTYPE_SK_ED25519:
             rc = pki_signature_from_ed25519_blob(sig, sig_blob);
             if (rc != SSH_OK){
                 goto error;
@@ -1941,6 +1984,8 @@ ssh_signature pki_signature_from_blob(const ssh_key pubkey,
         case SSH_KEYTYPE_ECDSA_P256_CERT01:
         case SSH_KEYTYPE_ECDSA_P384_CERT01:
         case SSH_KEYTYPE_ECDSA_P521_CERT01:
+        case SSH_KEYTYPE_SK_ECDSA:
+        case SSH_KEYTYPE_SK_ECDSA_CERT01:
 #ifdef HAVE_OPENSSL_ECC
             rc = pki_signature_from_ecdsa_blob(pubkey, sig_blob, sig);
             if (rc != SSH_OK) {
@@ -1994,6 +2039,13 @@ static EVP_PKEY *pki_key_to_pkey(ssh_key key)
 {
     EVP_PKEY *pkey = NULL;
 
+#ifdef WITH_PKCS11_URI
+    if (key->flags & SSH_KEY_FLAG_PKCS11_URI) {
+        pkey = key->key;
+        return pkey;
+    }
+#endif
+
     switch(key->type) {
     case SSH_KEYTYPE_DSS:
     case SSH_KEYTYPE_DSS_CERT01:
@@ -2030,6 +2082,8 @@ static EVP_PKEY *pki_key_to_pkey(ssh_key key)
     case SSH_KEYTYPE_ECDSA_P256_CERT01:
     case SSH_KEYTYPE_ECDSA_P384_CERT01:
     case SSH_KEYTYPE_ECDSA_P521_CERT01:
+    case SSH_KEYTYPE_SK_ECDSA:
+    case SSH_KEYTYPE_SK_ECDSA_CERT01:
 # if defined(HAVE_OPENSSL_ECC)
         if (key->ecdsa == NULL) {
             SSH_LOG(SSH_LOG_TRACE, "NULL key->ecdsa");
@@ -2046,6 +2100,8 @@ static EVP_PKEY *pki_key_to_pkey(ssh_key key)
 # endif
     case SSH_KEYTYPE_ED25519:
     case SSH_KEYTYPE_ED25519_CERT01:
+    case SSH_KEYTYPE_SK_ED25519:
+    case SSH_KEYTYPE_SK_ED25519_CERT01:
 # if defined(HAVE_OPENSSL_ED25519)
         if (ssh_key_is_private(key)) {
             if (key->ed25519_privkey == NULL) {
@@ -2292,7 +2348,9 @@ int pki_verify_data_signature(ssh_signature signature,
 
 #ifndef HAVE_OPENSSL_ED25519
     if (pubkey->type == SSH_KEYTYPE_ED25519 ||
-        pubkey->type == SSH_KEYTYPE_ED25519_CERT01)
+        pubkey->type == SSH_KEYTYPE_ED25519_CERT01 ||
+        pubkey->type == SSH_KEYTYPE_SK_ED25519 ||
+        pubkey->type == SSH_KEYTYPE_SK_ED25519_CERT01)
     {
         return pki_ed25519_verify(pubkey, signature, input, input_len);
     }
@@ -2489,5 +2547,158 @@ ssh_signature pki_do_sign_hash(const ssh_key privkey,
     return sig;
 }
 #endif /* HAVE_OPENSSL_ED25519 */
+
+/**
+ * @internal
+ *
+ * @brief Populate the public/private ssh_key from the engine with
+ * PKCS#11 URIs as the look up.
+ *
+ * @param[in]   uri_name    The PKCS#11 URI
+ * @param[in]   nkey        The ssh-key context for
+ *                          the key loaded from the engine.
+ * @param[in]   key_type    The type of the key used. Public/Private.
+ *
+ * @return  SSH_OK if ssh-key is valid; SSH_ERROR otherwise.
+ */
+int pki_uri_import(const char *uri_name,
+                     ssh_key *nkey,
+                     enum ssh_key_e key_type)
+{
+    ENGINE *engine = NULL;
+    EVP_PKEY *pkey = NULL;
+    RSA *rsa = NULL;
+    ssh_key key = NULL;
+    enum ssh_keytypes_e type = SSH_KEYTYPE_UNKNOWN;
+#ifdef HAVE_OPENSSL_ECC
+    EC_KEY *ecdsa = NULL;
+#else
+    void *ecdsa = NULL;
+#endif
+    int ok;
+
+    ENGINE_load_builtin_engines();
+
+    engine = ENGINE_by_id("pkcs11");
+    if (engine == NULL) {
+        SSH_LOG(SSH_LOG_WARN,
+                "Could not load the engine: %s",
+                ERR_error_string(ERR_get_error(),NULL));
+        return SSH_ERROR;
+    }
+    SSH_LOG(SSH_LOG_INFO, "Engine loaded successfully");
+
+    ok = ENGINE_init(engine);
+    if (!ok) {
+        SSH_LOG(SSH_LOG_WARN,
+                "Could not initialize the engine: %s",
+                ERR_error_string(ERR_get_error(),NULL));
+        ENGINE_free(engine);
+        return SSH_ERROR;
+    }
+
+    SSH_LOG(SSH_LOG_INFO, "Engine init success");
+
+    switch (key_type) {
+    case SSH_KEY_PRIVATE:
+        pkey = ENGINE_load_private_key(engine, uri_name, NULL, NULL);
+        if (pkey == NULL) {
+            SSH_LOG(SSH_LOG_WARN,
+                    "Could not load key: %s",
+                    ERR_error_string(ERR_get_error(),NULL));
+            goto fail;
+        }
+        break;
+    case SSH_KEY_PUBLIC:
+        pkey = ENGINE_load_public_key(engine, uri_name, NULL, NULL);
+        if (pkey == NULL) {
+            SSH_LOG(SSH_LOG_WARN,
+                    "Could not load key: %s",
+                    ERR_error_string(ERR_get_error(),NULL));
+            goto fail;
+        }
+        break;
+    default:
+        SSH_LOG(SSH_LOG_WARN,
+                "Invalid key type: %d", key_type);
+        goto fail;
+    }
+
+    key = ssh_key_new();
+    if (key == NULL) {
+        goto fail;
+    }
+
+    switch (EVP_PKEY_base_id(pkey)) {
+    case EVP_PKEY_RSA:
+        rsa = EVP_PKEY_get1_RSA(pkey);
+        if (rsa == NULL) {
+            SSH_LOG(SSH_LOG_WARN,
+                    "Parsing pub key: %s",
+                    ERR_error_string(ERR_get_error(),NULL));
+            goto fail;
+        }
+        type = SSH_KEYTYPE_RSA;
+        break;
+    case EVP_PKEY_EC:
+#ifdef HAVE_OPENSSL_ECC
+        ecdsa = EVP_PKEY_get1_EC_KEY(pkey);
+        if (ecdsa == NULL) {
+            SSH_LOG(SSH_LOG_WARN,
+                    "Parsing pub key: %s",
+                    ERR_error_string(ERR_get_error(), NULL));
+            goto fail;
+        }
+
+        /* pki_privatekey_type_from_string always returns P256 for ECDSA
+         * keys, so we need to figure out the correct type here */
+        type = pki_key_ecdsa_to_key_type(ecdsa);
+        if (type == SSH_KEYTYPE_UNKNOWN) {
+            SSH_LOG(SSH_LOG_WARN, "Invalid pub key.");
+            goto fail;
+        }
+
+        break;
+#endif
+    default:
+        SSH_LOG(SSH_LOG_WARN, "Unknown or invalid public key type %d",
+                EVP_PKEY_base_id(pkey));
+        goto fail;
+    }
+
+    key->key = pkey;
+    key->type = type;
+    key->type_c = ssh_key_type_to_char(type);
+    if (key_type == SSH_KEY_PRIVATE) {
+        key->flags = SSH_KEY_FLAG_PUBLIC | SSH_KEY_FLAG_PRIVATE | SSH_KEY_FLAG_PKCS11_URI;
+    } else {
+        key->flags = SSH_KEY_FLAG_PUBLIC | SSH_KEY_FLAG_PKCS11_URI;
+    }
+    key->rsa = rsa;
+    key->ecdsa = ecdsa;
+#ifdef HAVE_OPENSSL_ECC
+    if (is_ecdsa_key_type(key->type)) {
+        key->ecdsa_nid = pki_key_ecdsa_to_nid(key->ecdsa);
+    }
+#endif
+
+    *nkey = key;
+    ENGINE_finish(engine);
+    ENGINE_free(engine);
+
+    return SSH_OK;
+
+fail:
+    ENGINE_finish(engine);
+    ENGINE_free(engine);
+    EVP_PKEY_free(pkey);
+    ssh_key_free(key);
+    RSA_free(rsa);
+#ifdef HAVE_OPENSSL_ECC
+    EC_KEY_free(ecdsa);
+#endif
+
+    return SSH_ERROR;
+}
 
 #endif /* _PKI_CRYPTO_H */

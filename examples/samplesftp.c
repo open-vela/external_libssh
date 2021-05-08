@@ -29,12 +29,10 @@ clients must be made or how a client should react.
 #include "examples_common.h"
 #ifdef WITH_SFTP
 
-#ifndef BUF_SIZE
-#define BUF_SIZE 65536
-#endif
-
 static int verbosity;
 static char *destination;
+
+#define DATALEN 65536
 
 static void do_sftp(ssh_session session) {
     sftp_session sftp = sftp_new(session);
@@ -46,7 +44,7 @@ static void do_sftp(ssh_session session) {
     sftp_file to;
     int len = 1;
     unsigned int i;
-    char data[BUF_SIZE] = {0};
+    char data[DATALEN] = {0};
     char *lnk;
 
     unsigned int count;
@@ -225,9 +223,9 @@ static void do_sftp(ssh_session session) {
     to = sftp_open(sftp, "/tmp/grosfichier", O_WRONLY|O_CREAT, 0644);
 
     for (i = 0; i < 1000; ++i) {
-        len = sftp_write(to, data, sizeof(data));
+        len = sftp_write(to, data, DATALEN);
         printf("wrote %d bytes\n", len);
-        if (len != sizeof(data)) {
+        if (len != DATALEN) {
             printf("chunk %d : %d (%s)\n", i, len, ssh_get_error(session));
         }
     }
