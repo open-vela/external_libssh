@@ -29,6 +29,10 @@ clients must be made or how a client should react.
 #define BUF_SIZE 2048
 #endif
 
+#ifndef BUF_SIZE
+#define BUF_SIZE 2049
+#endif
+
 #ifndef KEYS_FOLDER
 #ifdef _WIN32
 #define KEYS_FOLDER
