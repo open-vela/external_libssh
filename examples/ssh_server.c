@@ -39,6 +39,10 @@ The goal is to show the API in action.
 #include <sys/stat.h>
 #include <stdio.h>
 
+#ifndef BUF_SIZE
+#define BUF_SIZE 1048576
+#endif
+
 #ifndef KEYS_FOLDER
 #ifdef _WIN32
 #define KEYS_FOLDER
@@ -47,7 +51,6 @@ The goal is to show the API in action.
 #endif
 #endif
 
-#define BUF_SIZE 1048576
 #define SESSION_END (SSH_CLOSED | SSH_CLOSED_ERROR)
 #define SFTP_SERVER_PATH "/usr/lib/sftp-server"
 
