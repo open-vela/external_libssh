@@ -32,6 +32,14 @@
 #endif
 #include <stdbool.h>
 #include <limits.h>
+#ifndef _WIN32
+# include <sys/types.h>
+# include <sys/stat.h>
+# include <fcntl.h>
+# include <errno.h>
+# include <signal.h>
+# include <sys/wait.h>
+#endif
 
 #include "libssh/config_parser.h"
 #include "libssh/config.h"
@@ -289,6 +297,128 @@ ssh_config_match(char *value, const char *pattern, bool negate)
     return result;
 }
 
+#ifdef _WIN32
+static int
+ssh_match_exec(ssh_session session, const char *command, bool negate)
+{
+    (void) session;
+    (void) command;
+    (void) negate;
+
+    SSH_LOG(SSH_LOG_TRACE, "Unsupported 'exec' command on Windows '%s'",
+            command);
+    return 0;
+}
+#else /* _WIN32 */
+
+static int
+ssh_exec_shell(char *cmd)
+{
+    char *shell = NULL;
+    pid_t pid;
+    int status, devnull, rc;
+
+    shell = getenv("SHELL");
+    if (shell == NULL || shell[0] == '\0') {
+        shell = (char *)"/bin/sh";
+    }
+
+    rc = access(shell, X_OK);
+    if (rc != 0) {
+        SSH_LOG(SSH_LOG_WARN, "The shell '%s' is not executable", shell);
+        return -1;
+    }
+
+    /* Need this to redirect subprocess stdin/out */
+    devnull = open("/dev/null", O_RDWR);
+    if (devnull == -1) {
+        SSH_LOG(SSH_LOG_WARN, "Failed to open(/dev/null): %s", strerror(errno));
+        return -1;
+    }
+
+    SSH_LOG(SSH_LOG_DEBUG, "Running command '%s'", cmd);
+    pid = fork();
+    if (pid == 0) { /* Child */
+        char *argv[4];
+
+        /* Redirect child stdin and stdout. Leave stderr */
+        rc = dup2(devnull, STDIN_FILENO);
+        if (rc == -1) {
+            SSH_LOG(SSH_LOG_WARN, "dup2: %s", strerror(errno));
+            exit(1);
+        }
+        rc = dup2(devnull, STDOUT_FILENO);
+        if (rc == -1) {
+            SSH_LOG(SSH_LOG_WARN, "dup2: %s", strerror(errno));
+	    exit(1);
+        }
+        if (devnull > STDERR_FILENO) {
+            close(devnull);
+        }
+
+        argv[0] = shell;
+        argv[1] = (char *) "-c";
+        argv[2] = strdup(cmd);
+        argv[3] = NULL;
+
+        rc = execv(argv[0], argv);
+        if (rc == -1) {
+            SSH_LOG(SSH_LOG_WARN, "Failed to execute command '%s': %s", cmd,
+                    strerror(errno));
+            /* Die with signal to make this error apparent to parent. */
+            signal(SIGTERM, SIG_DFL);
+            kill(getpid(), SIGTERM);
+            _exit(1);
+        }
+    }
+
+    /* Parent */
+    close(devnull);
+    if (pid == -1) { /* Error */
+        SSH_LOG(SSH_LOG_WARN, "Failed to fork child: %s", strerror(errno));
+        return -1;
+
+    }
+
+    while (waitpid(pid, &status, 0) == -1) {
+        if (errno != EINTR) {
+            SSH_LOG(SSH_LOG_WARN, "waitpid failed: %s", strerror(errno));
+            return -1;
+        }
+    }
+    if (!WIFEXITED(status)) {
+        SSH_LOG(SSH_LOG_WARN, "Command %s exitted abnormally", cmd);
+        return -1;
+    }
+    SSH_LOG(SSH_LOG_TRACE, "Command '%s' returned %d", cmd, WEXITSTATUS(status));
+    return WEXITSTATUS(status);
+}
+
+static int
+ssh_match_exec(ssh_session session, const char *command, bool negate)
+{
+    int rv, result = 0;
+    char *cmd = NULL;
+
+    /* TODO There should be more supported expansions */
+    cmd = ssh_path_expand_escape(session, command);
+    if (cmd == NULL) {
+        return 0;
+    }
+    rv = ssh_exec_shell(cmd);
+    if (rv > 0 && negate == true) {
+        result = 1;
+    } else if (rv == 0 && negate == false) {
+        result = 1;
+    }
+    SSH_LOG(SSH_LOG_TRACE, "%s 'exec' command '%s'%s (rv=%d)",
+            result == 1 ? "Matched" : "Not matched", cmd,
+            negate == true ? " (negated)" : "", rv);
+    free(cmd);
+    return result;
+}
+#endif  /* _WIN32 */
+
 /* @brief: Parse the ProxyJump configuration line and if parsing,
  * stores the result in the configuration option
  */
@@ -427,6 +557,7 @@ ssh_config_parse_line(ssh_session session,
       opcode != SOC_HOST &&
       opcode != SOC_MATCH &&
       opcode != SOC_INCLUDE &&
+      opcode != SOC_IDENTITY &&
       opcode > SOC_UNSUPPORTED) { /* Ignore all unknown types here */
       /* Skip all the options that were already applied */
       if (seen[opcode] != 0) {
@@ -495,7 +626,7 @@ ssh_config_parse_line(ssh_session session,
 
             case MATCH_FINAL:
             case MATCH_CANONICAL:
-                SSH_LOG(SSH_LOG_WARN,
+                SSH_LOG(SSH_LOG_INFO,
                         "line %d: Unsupported Match keyword '%s', skipping",
                         count,
                         p);
@@ -504,20 +635,22 @@ ssh_config_parse_line(ssh_session session,
                 break;
 
             case MATCH_EXEC:
-                /* Skip to the end of line as unsupported */
-                p = ssh_config_get_cmd(&s);
+                /* Skip one argument (including in quotes) */
+                p = ssh_config_get_token(&s);
                 if (p == NULL || p[0] == '\0') {
                     SSH_LOG(SSH_LOG_WARN, "line %d: Match keyword "
                             "'%s' requires argument", count, p2);
                     SAFE_FREE(x);
                     return -1;
                 }
+                if (result != 1) {
+                    SSH_LOG(SSH_LOG_INFO, "line %d: Skipped match exec "
+                            "'%s' as previous conditions already failed.",
+                            count, p2);
+                    continue;
+                }
+                result &= ssh_match_exec(session, p, negate);
                 args++;
-                SSH_LOG(SSH_LOG_WARN,
-                        "line %d: Unsupported Match keyword '%s', ignoring",
-                        count,
-                        p2);
-                result = 0;
                 break;
 
             case MATCH_LOCALUSER:
@@ -552,7 +685,7 @@ ssh_config_parse_line(ssh_session session,
                     return -1;
                 }
                 args++;
-                SSH_LOG(SSH_LOG_WARN,
+                SSH_LOG(SSH_LOG_INFO,
                         "line %d: Unsupported Match keyword '%s', ignoring",
                         count,
                         p2);
@@ -987,11 +1120,11 @@ ssh_config_parse_line(ssh_session session,
               keyword, count);
       break;
     case SOC_UNSUPPORTED:
-      SSH_LOG(SSH_LOG_RARE, "Unsupported option: %s, line: %d",
+      SSH_LOG(SSH_LOG_INFO, "Unsupported option: %s, line: %d",
               keyword, count);
       break;
     case SOC_UNKNOWN:
-      SSH_LOG(SSH_LOG_WARN, "Unknown option: %s, line: %d",
+      SSH_LOG(SSH_LOG_INFO, "Unknown option: %s, line: %d",
               keyword, count);
       break;
     default:
@@ -1039,4 +1172,58 @@ int ssh_config_parse_file(ssh_session session, const char *filename)
 
     fclose(f);
     return 0;
+}
+
+/* @brief Parse configuration string and set the options to the given session
+ *
+ * @params[in] session   The ssh session
+ * @params[in] input     Null terminated string containing the configuration
+ *
+ * @returns    SSH_OK on successful parsing the configuration string,
+ *             SSH_ERROR on error
+ */
+int ssh_config_parse_string(ssh_session session, const char *input)
+{
+    char line[MAX_LINE_SIZE] = {0};
+    const char *c = input, *line_start = input;
+    unsigned int line_num = 0, line_len;
+    int parsing, rv;
+
+    SSH_LOG(SSH_LOG_DEBUG, "Reading configuration data from string:");
+    SSH_LOG(SSH_LOG_DEBUG, "START\n%s\nEND", input);
+
+    parsing = 1;
+    while (1) {
+        line_num++;
+        line_start = c;
+        c = strchr(line_start, '\n');
+        if (c == NULL) {
+            /* if there is no newline in the end of the string */
+            c = strchr(line_start, '\0');
+        }
+        if (c == NULL) {
+            /* should not happen, would mean a string without trailing '\0' */
+            SSH_LOG(SSH_LOG_WARN, "No trailing '\\0' in config string");
+            return SSH_ERROR;
+        }
+        line_len = c - line_start;
+        if (line_len > MAX_LINE_SIZE - 1) {
+            SSH_LOG(SSH_LOG_WARN, "Line %u too long: %u characters",
+                    line_num, line_len);
+            return SSH_ERROR;
+        }
+        memcpy(line, line_start, line_len);
+        line[line_len] = '\0';
+        SSH_LOG(SSH_LOG_DEBUG, "Line %u: %s", line_num, line);
+        rv = ssh_config_parse_line(session, line, line_num, &parsing);
+        if (rv < 0) {
+            return SSH_ERROR;
+        }
+        if (*c == '\0') {
+            break;
+        }
+        c++;
+    }
+
+    return SSH_OK;
 }
