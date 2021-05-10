@@ -98,7 +98,7 @@ static void torture_log_callback(void **state)
 
     expect_value(test_mock_ssh_logging_callback, priority, 1);
     expect_string(test_mock_ssh_logging_callback, function, "torture_log_callback");
-    expect_string(test_mock_ssh_logging_callback, buffer, "torture_log_callback: test");
+    expect_string(test_mock_ssh_logging_callback, buffer, "test");
 
     SSH_LOG(SSH_LOG_WARN, "test");
 
