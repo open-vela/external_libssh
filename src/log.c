@@ -100,13 +100,9 @@ void ssh_log_function(int verbosity,
 {
     ssh_logging_callback log_fn = ssh_get_log_callback();
     if (log_fn) {
-        char buf[1024];
-
-        snprintf(buf, sizeof(buf), "%s: %s", function, buffer);
-
         log_fn(verbosity,
                function,
-               buf,
+               buffer,
                ssh_get_log_userdata());
         return;
     }
