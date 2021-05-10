@@ -25,10 +25,6 @@ clients must be made or how a client should react.
 #include <string.h>
 #include <stdio.h>
 
-#ifndef BUF_SIZE
-#define BUF_SIZE 2048
-#endif
-
 #define USER "myuser"
 #define PASSWORD "mypassword"
 
@@ -229,7 +225,7 @@ int main(int argc, char **argv){
         .channel_open_request_session_function = new_session_channel
     };
 
-    char buf[BUF_SIZE];
+    char buf[2048];
     char host[128]="";
     char *ptr;
     int i,r, rc;
@@ -295,7 +291,7 @@ int main(int argc, char **argv){
     snprintf(buf,sizeof(buf), "Hello %s, welcome to the Sample SSH proxy.\r\nPlease select your destination: ", username);
     ssh_channel_write(chan, buf, strlen(buf));
     do{
-        i=ssh_channel_read(chan,buf, sizeof(buf), 0);
+        i=ssh_channel_read(chan,buf, 2048, 0);
         if(i>0) {
             ssh_channel_write(chan, buf, i);
             if(strlen(host) + i < sizeof(host)){
