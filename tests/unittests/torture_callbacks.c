@@ -98,7 +98,7 @@ static void torture_log_callback(void **state)
 
     expect_value(test_mock_ssh_logging_callback, priority, 1);
     expect_string(test_mock_ssh_logging_callback, function, "torture_log_callback");
-    expect_string(test_mock_ssh_logging_callback, buffer, "test");
+    expect_string(test_mock_ssh_logging_callback, buffer, "torture_log_callback: test");
 
     SSH_LOG(SSH_LOG_WARN, "test");
 
@@ -138,6 +138,9 @@ static void torture_callbacks_execute_list(void **state){
     };
 
     (void)state;
+
+    assert_non_null(list);
+
     ssh_callbacks_init(&c1);
     ssh_callbacks_init(&c2);
     ssh_callbacks_init(&c3);
@@ -212,6 +215,8 @@ static void torture_callbacks_iterate(void **state){
     };
 
     (void)state; /* unused */
+
+    assert_non_null(list);
 
     ssh_callbacks_init(&c1);
     ssh_callbacks_init(&c2);

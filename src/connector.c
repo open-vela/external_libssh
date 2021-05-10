@@ -30,9 +30,7 @@
 #include <stdbool.h>
 #include <sys/stat.h>
 
-#ifndef CHUNKSIZE
 #define CHUNKSIZE 4096
-#endif
 
 #ifdef _WIN32
 # ifdef HAVE_IO_H

@@ -1105,7 +1105,8 @@ char *ssh_path_expand_tilde(const char *d) {
  */
 char *ssh_path_expand_escape(ssh_session session, const char *s) {
     char host[NI_MAXHOST];
-    char *buf, *r, *x = NULL;
+    char buf[MAX_BUF_SIZE];
+    char *r, *x = NULL;
     const char *p;
     size_t i, l;
 
@@ -1121,12 +1122,6 @@ char *ssh_path_expand_escape(ssh_session session, const char *s) {
         return NULL;
     }
 
-    buf = malloc(MAX_BUF_SIZE);
-    if (buf == NULL) {
-        free(r);
-        return NULL;
-    }
-
     p = r;
     buf[0] = '\0';
 
@@ -1136,7 +1131,6 @@ char *ssh_path_expand_escape(ssh_session session, const char *s) {
             buf[i] = *p;
             i++;
             if (i >= MAX_BUF_SIZE) {
-                free(buf);
                 free(r);
                 return NULL;
             }
@@ -1183,14 +1177,12 @@ char *ssh_path_expand_escape(ssh_session session, const char *s) {
             default:
                 ssh_set_error(session, SSH_FATAL,
                         "Wrong escape sequence detected");
-                free(buf);
                 free(r);
                 return NULL;
         }
 
         if (x == NULL) {
             ssh_set_error_oom(session);
-            free(buf);
             free(r);
             return NULL;
         }
@@ -1199,7 +1191,6 @@ char *ssh_path_expand_escape(ssh_session session, const char *s) {
         if (i >= MAX_BUF_SIZE) {
             ssh_set_error(session, SSH_FATAL,
                     "String too long");
-            free(buf);
             free(x);
             free(r);
             return NULL;
@@ -1211,9 +1202,8 @@ char *ssh_path_expand_escape(ssh_session session, const char *s) {
     }
 
     free(r);
-
-    /*strip the unused space by realloc */
-    return realloc(buf, strlen(buf) + 1);
+    return strdup(buf);
+#undef MAX_BUF_SIZE
 }
 
 /**
@@ -1310,7 +1300,8 @@ int ssh_analyze_banner(ssh_session session, int server)
             session->openssh = SSH_VERSION_INT(((int) major), ((int) minor), 0);
 
             SSH_LOG(SSH_LOG_PROTOCOL,
-                    "We are talking to an OpenSSH client version: %lu.%lu (%x)",
+                    "We are talking to an OpenSSH %s version: %lu.%lu (%x)",
+                    server ? "client" : "server",
                     major, minor, session->openssh);
         }
     }
@@ -1743,6 +1734,111 @@ int ssh_newline_vis(const char *string, char *buf, size_t buf_len)
     *out = '\0';
 
     return out - buf;
+}
+
+/**
+ * @internal
+ *
+ * @brief Replaces the last 6 characters of a string from 'X' to 6 random hexdigits.
+ *
+ * @param[in]  template   Any input string with last 6 characters as 'X'.
+ * @returns -1 as error when the last 6 characters of the input to be replaced are not 'X'
+ * 0 otherwise.
+ */
+int ssh_tmpname(char *template)
+{
+    char *tmp = NULL;
+    size_t i = 0;
+    int rc = 0;
+    uint8_t random[6];
+
+    if (template == NULL) {
+        goto err;
+    }
+
+    tmp = template + strlen(template) - 6;
+    if (tmp < template) {
+        goto err;
+    }
+
+    for (i = 0; i < 6; i++) {
+        if (tmp[i] != 'X') {
+            SSH_LOG(SSH_LOG_WARNING,
+                    "Invalid input. Last six characters of the input must be \'X\'");
+            goto err;
+        }
+    }
+
+    rc = ssh_get_random(random, 6, 0);
+    if (!rc) {
+        SSH_LOG(SSH_LOG_WARNING,
+                "Could not generate random data\n");
+        goto err;
+    }
+
+    for (i = 0; i < 6; i++) {
+        /* Limit the random[i] < 32 */
+        random[i] &= 0x1f;
+        /* For values from 0 to 9 use numbers, otherwise use letters */
+        tmp[i] = random[i] > 9 ? random[i] + 'a' - 10 : random[i] + '0';
+    }
+
+    return 0;
+
+err:
+    errno = EINVAL;
+    return -1;
+}
+
+/**
+ * @internal
+ *
+ * @brief Finds the first occurence of a patterm in a string and replaces it.
+ *
+ * @param[in]  src          Source string containing the patern to be replaced.
+ * @param[in]  pattern      Pattern to be replaced in the source string.
+ *                          Note: this function replaces the first occurence of pattern only.
+ * @param[in]  replace      String to be replaced is stored in replace.
+ *
+ * @returns  src_replaced a pointer that points to the replaced string.
+ * NULL if allocation fails or if src is NULL.
+ */
+char *ssh_strreplace(const char *src, const char *pattern, const char *replace)
+{
+    char *p = NULL;
+    char *src_replaced = NULL;
+
+    if (src == NULL) {
+        return NULL;
+    }
+
+    if (pattern == NULL || replace == NULL) {
+        return strdup(src);
+    }
+
+    p = strstr(src, pattern);
+
+    if (p != NULL) {
+        size_t offset = p - src;
+        size_t pattern_len = strlen(pattern);
+        size_t replace_len = strlen(replace);
+        size_t len  = strlen(src);
+        size_t len_replaced = len + replace_len - pattern_len + 1;
+
+        src_replaced = (char *)malloc(len_replaced);
+
+        if (src_replaced == NULL) {
+            return NULL;
+        }
+
+        memset(src_replaced, 0, len_replaced);
+        memcpy(src_replaced, src, offset);
+        memcpy(src_replaced + offset, replace, replace_len);
+        memcpy(src_replaced + offset + replace_len, src + offset + pattern_len, len - offset - pattern_len);
+        return src_replaced; /* free in the caller */
+    } else {
+        return strdup(src);
+    }
 }
 
 /** @} */

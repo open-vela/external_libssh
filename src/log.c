@@ -98,16 +98,25 @@ static void ssh_log_stderr(int verbosity,
     fprintf(stderr, "  %s\n", buffer);
 }
 
+static void ssh_log_custom(ssh_logging_callback log_fn,
+                           int verbosity,
+                           const char *function,
+                           const char *buffer)
+{
+    char buf[LOG_SIZE + 64];
+
+    snprintf(buf, sizeof(buf), "%s: %s", function, buffer);
+    log_fn(verbosity, function, buf, ssh_get_log_userdata());
+}
+
 void ssh_log_function(int verbosity,
                       const char *function,
                       const char *buffer)
 {
     ssh_logging_callback log_fn = ssh_get_log_callback();
+
     if (log_fn) {
-        log_fn(verbosity,
-               function,
-               buffer,
-               ssh_get_log_userdata());
+        ssh_log_custom(log_fn, verbosity, function, buffer);
         return;
     }
 
