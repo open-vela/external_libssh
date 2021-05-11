@@ -20,6 +20,8 @@ CFLAGS += ${shell $(INCDIR) $(INCDIROPT) "$(CC)" $(APPDIR)/external/zlib}
 CFLAGS += ${shell $(INCDIR) $(INCDIROPT) "$(CC)" $(APPDIR)/external/mbedtls/include}
 CFLAGS += ${shell $(INCDIR) $(INCDIROPT) "$(CC)" $(APPDIR)/external/libssh/include}
 CFLAGS += ${shell $(INCDIR) $(INCDIROPT) "$(CC)" $(APPDIR)/external/libssh}
+CFLAGS += -DBLOCKSIZE=512 -DBUF_SIZE=512 -DCHUNKSIZE=512
+CFLAGS += -DERROR_BUFFERLEN=512 -DLOG_SIZE=256 -DMAX_LINE_SIZE=512
 
 SKIP  = src/dh_crypto.c src/ecdh_crypto.c src/ecdh_gcrypt.c src/gcrypt_missing.c
 SKIP += src/gssapi.c src/libcrypto.c src/libcrypto-compat.c src/libgcrypt.c
