@@ -881,7 +881,8 @@ error:
  */
 int ssh_scp_deny_request(ssh_scp scp, const char *reason)
 {
-    char buffer[MAX_BUF_SIZE] = {0};
+    size_t len = 1 + strlen(reason) + 1;
+    char buffer[MIN(len + 1, MAX_BUF_SIZE)];
     int rc;
 
     if (scp == NULL) {
@@ -895,7 +896,7 @@ int ssh_scp_deny_request(ssh_scp scp, const char *reason)
     }
 
     snprintf(buffer, sizeof(buffer), "%c%s\n", 2, reason);
-    rc = ssh_channel_write(scp->channel, buffer, strlen(buffer));
+    rc = ssh_channel_write(scp->channel, buffer, len);
     if (rc == SSH_ERROR) {
         return SSH_ERROR;
     }
