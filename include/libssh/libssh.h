@@ -1,7 +1,7 @@
 /*
  * This file is part of the SSH Library
  *
- * Copyright (c) 2003-2021 by Aris Adamantiadis and the libssh team
+ * Copyright (c) 2003-2009 by Aris Adamantiadis
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -289,10 +289,6 @@ enum ssh_keytypes_e{
   SSH_KEYTYPE_ECDSA_P384_CERT01,
   SSH_KEYTYPE_ECDSA_P521_CERT01,
   SSH_KEYTYPE_ED25519_CERT01,
-  SSH_KEYTYPE_SK_ECDSA,
-  SSH_KEYTYPE_SK_ECDSA_CERT01,
-  SSH_KEYTYPE_SK_ED25519,
-  SSH_KEYTYPE_SK_ED25519_CERT01,
 };
 
 enum ssh_keycmp_e {
@@ -757,8 +753,6 @@ LIBSSH_API int ssh_userauth_publickey(ssh_session session,
 LIBSSH_API int ssh_userauth_agent(ssh_session session,
                                   const char *username);
 #endif
-LIBSSH_API int ssh_userauth_publickey_auto_get_current_identity(ssh_session session,
-                                                                char** value);
 LIBSSH_API int ssh_userauth_publickey_auto(ssh_session session,
                                            const char *username,
                                            const char *passphrase);
