@@ -96,7 +96,5 @@ int ssh_mkdirs(const char *pathname, mode_t mode);
 
 int ssh_quote_file_name(const char *file_name, char *buf, size_t buf_len);
 int ssh_newline_vis(const char *string, char *buf, size_t buf_len);
-int ssh_tmpname(char *template);
 
-char *ssh_strreplace(const char *src, const char *pattern, const char *repl);
 #endif /* MISC_H_ */
