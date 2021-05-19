@@ -82,7 +82,7 @@ static void add_cmd(char *cmd)
         return;
     }
 
-    cmds[n] = cmd;
+    cmds[n] = strdup(cmd);
 }
 
 static void usage(void)
@@ -123,7 +123,7 @@ static int opts(int argc, char **argv)
 #endif
         default:
             fprintf(stderr, "Unknown option %c\n", optopt);
-            return -1;
+            usage();
         }
     }
     if (optind < argc) {
@@ -135,7 +135,7 @@ static int opts(int argc, char **argv)
     }
 
     if (host == NULL) {
-        return -1;
+        usage();
     }
 
     return 0;
@@ -407,14 +407,13 @@ int main(int argc, char **argv)
     ssh_callbacks_init(&cb);
     ssh_set_callbacks(session,&cb);
 
-    if (ssh_options_getopt(session, &argc, argv) || opts(argc, argv)) {
+    if (ssh_options_getopt(session, &argc, argv)) {
         fprintf(stderr,
                 "Error parsing command line: %s\n",
                 ssh_get_error(session));
-        ssh_free(session);
-        ssh_finalize();
         usage();
     }
+    opts(argc, argv);
     signal(SIGTERM, do_exit);
 
     set_pcap(session);
