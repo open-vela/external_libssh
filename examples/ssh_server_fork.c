@@ -24,7 +24,6 @@ The goal is to show the API in action.
 #ifdef HAVE_LIBUTIL_H
 #include <libutil.h>
 #endif
-#include <pthread.h>
 #ifdef HAVE_PTY_H
 #include <pty.h>
 #endif
@@ -797,29 +796,27 @@ static void handle_session(ssh_event event, ssh_session session) {
     }
 }
 
-static void *session_thread(void *arg) {
-    ssh_session session = arg;
-    ssh_event event;
-
-    event = ssh_event_new();
-    if (event != NULL) {
-        /* Blocks until the SSH session ends by either
-         * child thread exiting, or client disconnecting. */
-        handle_session(event, session);
-        ssh_event_free(event);
-    } else {
-        fprintf(stderr, "Could not create polling context\n");
-    }
-    ssh_disconnect(session);
-    ssh_free(session);
-    return NULL;
+/* SIGCHLD handler for cleaning up dead children. */
+static void sigchld_handler(int signo) {
+    (void) signo;
+    while (waitpid(-1, NULL, WNOHANG) > 0);
 }
 
 int main(int argc, char **argv) {
     ssh_bind sshbind;
     ssh_session session;
-    pthread_t tid;
+    ssh_event event;
+    struct sigaction sa;
     int rc;
+
+    /* Set up SIGCHLD handler. */
+    sa.sa_handler = sigchld_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
+    if (sigaction(SIGCHLD, &sa, NULL) != 0) {
+        fprintf(stderr, "Failed to register SIGCHLD handler\n");
+        return 1;
+    }
 
     rc = ssh_init();
     if (rc < 0) {
@@ -860,17 +857,36 @@ int main(int argc, char **argv) {
 
         /* Blocks until there is a new incoming connection. */
         if(ssh_bind_accept(sshbind, session) != SSH_ERROR) {
-            rc = pthread_create(&tid, NULL, session_thread, session);
-            if (rc == 0) {
-                pthread_detach(tid);
-                continue;
+            switch(fork()) {
+                case 0:
+                    /* Remove the SIGCHLD handler inherited from parent. */
+                    sa.sa_handler = SIG_DFL;
+                    sigaction(SIGCHLD, &sa, NULL);
+                    /* Remove socket binding, which allows us to restart the
+                     * parent process, without terminating existing sessions. */
+                    ssh_bind_free(sshbind);
+
+                    event = ssh_event_new();
+                    if (event != NULL) {
+                        /* Blocks until the SSH session ends by either
+                         * child process exiting, or client disconnecting. */
+                        handle_session(event, session);
+                        ssh_event_free(event);
+                    } else {
+                        fprintf(stderr, "Could not create polling context\n");
+                    }
+                    ssh_disconnect(session);
+                    ssh_free(session);
+
+                    exit(0);
+                case -1:
+                    fprintf(stderr, "Failed to fork\n");
             }
-            fprintf(stderr, "Failed to pthread_create\n");
         } else {
             fprintf(stderr, "%s\n", ssh_get_error(sshbind));
         }
-        /* Since the session has been failed to pass to the child thread,
-         * do some cleaning up at the parent thread. */
+        /* Since the session has been passed to a child fork, do some cleaning
+         * up at the parent process. */
         ssh_disconnect(session);
         ssh_free(session);
     }
