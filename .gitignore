@@ -3,7 +3,6 @@
 .*
 *.swp
 *~$
-Make.dep
 cscope.*
 compile_commands.json
 /.clangd

@@ -22,10 +22,6 @@ program.
 #include <libssh/libssh.h>
 #include "examples_common.h"
 
-#ifndef BUF_SIZE
-#define BUF_SIZE 16384
-#endif
-
 static int verbosity = 0;
 static const char *createcommand =
     "rm -fr /tmp/libssh_tests && mkdir /tmp/libssh_tests && "
@@ -106,7 +102,7 @@ static void create_files(ssh_session session){
 
 static int fetch_files(ssh_session session){
   int size;
-  char buffer[BUF_SIZE];
+  char buffer[16384];
   int mode;
   char *filename;
   int r;
