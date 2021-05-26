@@ -44,10 +44,6 @@
 #include "libssh/knownhosts.h"
 #include "libssh/token.h"
 
-#ifndef MAX_LINE_SIZE
-#define MAX_LINE_SIZE 8192
-#endif
-
 /**
  * @addtogroup libssh_session
  *
@@ -220,7 +216,7 @@ static int ssh_known_hosts_read_entries(const char *match,
                                         const char *filename,
                                         struct ssh_list **entries)
 {
-    char line[MAX_LINE_SIZE];
+    char line[8192];
     size_t lineno = 0;
     size_t len = 0;
     FILE *fp;
@@ -376,6 +372,7 @@ struct ssh_list *ssh_known_hosts_get_algorithms(ssh_session session)
 
     list = ssh_list_new();
     if (list == NULL) {
+        ssh_set_error_oom(session);
         SAFE_FREE(host_port);
         return NULL;
     }
@@ -898,7 +895,7 @@ int ssh_session_export_known_hosts_entry(ssh_session session,
 {
     ssh_key server_pubkey = NULL;
     char *host = NULL;
-    char entry_buf[MAX_LINE_SIZE] = {0};
+    char entry_buf[4096] = {0};
     char *b64_key = NULL;
     int rc;
 
