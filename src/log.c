@@ -38,6 +38,10 @@
 #include "libssh/misc.h"
 #include "libssh/session.h"
 
+#ifndef LOG_SIZE
+#define LOG_SIZE 1024
+#endif
+
 static LIBSSH_THREAD int ssh_log_level;
 static LIBSSH_THREAD ssh_logging_callback ssh_log_cb;
 static LIBSSH_THREAD void *ssh_log_userdata;
@@ -100,13 +104,9 @@ void ssh_log_function(int verbosity,
 {
     ssh_logging_callback log_fn = ssh_get_log_callback();
     if (log_fn) {
-        char buf[1024];
-
-        snprintf(buf, sizeof(buf), "%s: %s", function, buffer);
-
         log_fn(verbosity,
                function,
-               buf,
+               buffer,
                ssh_get_log_userdata());
         return;
     }
@@ -114,18 +114,27 @@ void ssh_log_function(int verbosity,
     ssh_log_stderr(verbosity, function, buffer);
 }
 
+void ssh_vlog(int verbosity,
+              const char *function,
+              const char *format,
+              va_list *va)
+{
+    char buffer[LOG_SIZE];
+
+    vsnprintf(buffer, sizeof(buffer), format, *va);
+    ssh_log_function(verbosity, function, buffer);
+}
+
 void _ssh_log(int verbosity,
               const char *function,
               const char *format, ...)
 {
-    char buffer[1024];
     va_list va;
 
     if (verbosity <= ssh_get_log_level()) {
         va_start(va, format);
-        vsnprintf(buffer, sizeof(buffer), format, va);
+        ssh_vlog(verbosity, function, format, &va);
         va_end(va);
-        ssh_log_function(verbosity, function, buffer);
     }
 }
 
@@ -135,14 +144,12 @@ void ssh_log(ssh_session session,
              int verbosity,
              const char *format, ...)
 {
-  char buffer[1024];
   va_list va;
 
   if (verbosity <= session->common.log_verbosity) {
     va_start(va, format);
-    vsnprintf(buffer, sizeof(buffer), format, va);
+    ssh_vlog(verbosity, "", format, &va);
     va_end(va);
-    ssh_log_function(verbosity, "", buffer);
   }
 }
 
@@ -157,14 +164,12 @@ void ssh_log_common(struct ssh_common_struct *common,
                     const char *function,
                     const char *format, ...)
 {
-    char buffer[1024];
     va_list va;
 
     if (verbosity <= common->log_verbosity) {
         va_start(va, format);
-        vsnprintf(buffer, sizeof(buffer), format, va);
+        ssh_vlog(verbosity, function, format, &va);
         va_end(va);
-        ssh_log_function(verbosity, function, buffer);
     }
 }
 

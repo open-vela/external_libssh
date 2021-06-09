@@ -1,7 +1,7 @@
 /*
  * This file is part of the SSH Library
  *
- * Copyright (c) 2003-2021 by Aris Adamantiadis and the libssh team
+ * Copyright (c) 2003-2009 by Aris Adamantiadis
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -48,6 +48,8 @@
     #define LIBSSH_API
   #endif
 #endif
+
+#include <stdarg.h>
 
 #ifdef _MSC_VER
   /* Visual Studio hasn't inttypes.h so it doesn't know uint32_t */
@@ -289,10 +291,6 @@ enum ssh_keytypes_e{
   SSH_KEYTYPE_ECDSA_P384_CERT01,
   SSH_KEYTYPE_ECDSA_P521_CERT01,
   SSH_KEYTYPE_ED25519_CERT01,
-  SSH_KEYTYPE_SK_ECDSA,
-  SSH_KEYTYPE_SK_ECDSA_CERT01,
-  SSH_KEYTYPE_SK_ED25519,
-  SSH_KEYTYPE_SK_ED25519_CERT01,
 };
 
 enum ssh_keycmp_e {
@@ -587,6 +585,10 @@ LIBSSH_API int ssh_set_log_level(int level);
 LIBSSH_API int ssh_get_log_level(void);
 LIBSSH_API void *ssh_get_log_userdata(void);
 LIBSSH_API int ssh_set_log_userdata(void *data);
+LIBSSH_API void ssh_vlog(int verbosity,
+                         const char *function,
+                         const char *format,
+                         va_list *va) PRINTF_ATTRIBUTE(3, 0);
 LIBSSH_API void _ssh_log(int verbosity,
                          const char *function,
                          const char *format, ...) PRINTF_ATTRIBUTE(3, 4);
@@ -757,8 +759,6 @@ LIBSSH_API int ssh_userauth_publickey(ssh_session session,
 LIBSSH_API int ssh_userauth_agent(ssh_session session,
                                   const char *username);
 #endif
-LIBSSH_API int ssh_userauth_publickey_auto_get_current_identity(ssh_session session,
-                                                                char** value);
 LIBSSH_API int ssh_userauth_publickey_auto(ssh_session session,
                                            const char *username,
                                            const char *passphrase);
