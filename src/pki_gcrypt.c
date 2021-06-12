@@ -1506,13 +1506,11 @@ int pki_key_compare(const ssh_key k1,
             }
             break;
         case SSH_KEYTYPE_ED25519:
-        case SSH_KEYTYPE_SK_ED25519:
 		/* ed25519 keys handled globaly */
 		return 0;
         case SSH_KEYTYPE_ECDSA_P256:
         case SSH_KEYTYPE_ECDSA_P384:
         case SSH_KEYTYPE_ECDSA_P521:
-        case SSH_KEYTYPE_SK_ECDSA:
 #ifdef HAVE_GCRYPT_ECC
             if (k1->ecdsa_nid != k2->ecdsa_nid) {
                 return 1;
@@ -1535,9 +1533,7 @@ int pki_key_compare(const ssh_key k1,
         case SSH_KEYTYPE_ECDSA_P256_CERT01:
         case SSH_KEYTYPE_ECDSA_P384_CERT01:
         case SSH_KEYTYPE_ECDSA_P521_CERT01:
-        case SSH_KEYTYPE_SK_ECDSA_CERT01:
         case SSH_KEYTYPE_ED25519_CERT01:
-        case SSH_KEYTYPE_SK_ED25519_CERT01:
         case SSH_KEYTYPE_RSA1:
         case SSH_KEYTYPE_UNKNOWN:
             return 1;
@@ -1679,20 +1675,14 @@ ssh_string pki_publickey_to_blob(const ssh_key key)
 
             break;
         case SSH_KEYTYPE_ED25519:
-        case SSH_KEYTYPE_SK_ED25519:
-            rc = pki_ed25519_public_key_to_blob(buffer, key);
-            if (rc != SSH_OK){
-                goto fail;
-            }
-            if (key->type == SSH_KEYTYPE_SK_ED25519 &&
-                ssh_buffer_add_ssh_string(buffer, key->sk_application) < 0) {
-                goto fail;
-            }
-            break;
+		rc = pki_ed25519_public_key_to_blob(buffer, key);
+		if (rc != SSH_OK){
+			goto fail;
+		}
+		break;
         case SSH_KEYTYPE_ECDSA_P256:
         case SSH_KEYTYPE_ECDSA_P384:
         case SSH_KEYTYPE_ECDSA_P521:
-        case SSH_KEYTYPE_SK_ECDSA:
 #ifdef HAVE_GCRYPT_ECC
             type_s = ssh_string_from_char(
                        pki_key_ecdsa_nid_to_char(key->ecdsa_nid));
@@ -1723,12 +1713,6 @@ ssh_string pki_publickey_to_blob(const ssh_key key)
             ssh_string_burn(e);
             SSH_STRING_FREE(e);
             e = NULL;
-
-            if (key->type == SSH_KEYTYPE_SK_ECDSA &&
-                ssh_buffer_add_ssh_string(buffer, key->sk_application) < 0) {
-                goto fail;
-            }
-
             break;
 #endif
         case SSH_KEYTYPE_RSA1:
@@ -1781,7 +1765,6 @@ ssh_string pki_signature_to_blob(const ssh_signature sig)
     gcry_sexp_t sexp;
     size_t size = 0;
     ssh_string sig_blob = NULL;
-    int rc;
 
     switch(sig->type) {
         case SSH_KEYTYPE_DSS:
@@ -1829,11 +1812,7 @@ ssh_string pki_signature_to_blob(const ssh_signature sig)
                 return NULL;
             }
 
-            rc = ssh_string_fill(sig_blob, buffer, 40);
-            if (rc < 0) {
-                SSH_STRING_FREE(sig_blob);
-                return NULL;
-            }
+            ssh_string_fill(sig_blob, buffer, 40);
             break;
         case SSH_KEYTYPE_RSA:
             sexp = gcry_sexp_find_token(sig->rsa_sig, "s", 0);
@@ -1850,16 +1829,13 @@ ssh_string pki_signature_to_blob(const ssh_signature sig)
             if (sig_blob == NULL) {
                 return NULL;
             }
-            rc = ssh_string_fill(sig_blob, discard_const_p(char, s), size);
+            ssh_string_fill(sig_blob, discard_const_p(char, s), size);
+
             gcry_sexp_release(sexp);
-            if (rc < 0) {
-                SSH_STRING_FREE(sig_blob);
-                return NULL;
-            }
             break;
         case SSH_KEYTYPE_ED25519:
-            sig_blob = pki_ed25519_signature_to_blob(sig);
-            break;
+		sig_blob = pki_ed25519_signature_to_blob(sig);
+		break;
         case SSH_KEYTYPE_ECDSA_P256:
         case SSH_KEYTYPE_ECDSA_P384:
         case SSH_KEYTYPE_ECDSA_P521:
@@ -1868,6 +1844,7 @@ ssh_string pki_signature_to_blob(const ssh_signature sig)
                 ssh_string R;
                 ssh_string S;
                 ssh_buffer b;
+                int rc;
 
                 b = ssh_buffer_new();
                 if (b == NULL) {
@@ -1908,13 +1885,9 @@ ssh_string pki_signature_to_blob(const ssh_signature sig)
                     return NULL;
                 }
 
-                rc = ssh_string_fill(sig_blob,
+                ssh_string_fill(sig_blob,
                                 ssh_buffer_get(b), ssh_buffer_get_len(b));
                 SSH_BUFFER_FREE(b);
-                if (rc < 0) {
-                    SSH_STRING_FREE(sig_blob);
-                    return NULL;
-                }
                 break;
             }
 #endif
@@ -1994,9 +1967,8 @@ ssh_signature pki_signature_from_blob(const ssh_key pubkey,
 
             if (len > rsalen) {
                 SSH_LOG(SSH_LOG_WARN,
-                        "Signature is too big: %lu > %lu",
-                        (unsigned long)len,
-                        (unsigned long)rsalen);
+                        "Signature is to big size: %lu",
+                        (unsigned long)len);
                 ssh_signature_free(sig);
                 return NULL;
             }
@@ -2024,7 +1996,6 @@ ssh_signature pki_signature_from_blob(const ssh_key pubkey,
             }
             break;
         case SSH_KEYTYPE_ED25519:
-        case SSH_KEYTYPE_SK_ED25519:
 		rc = pki_signature_from_ed25519_blob(sig, sig_blob);
 		if (rc != SSH_OK){
 			ssh_signature_free(sig);
@@ -2034,7 +2005,6 @@ ssh_signature pki_signature_from_blob(const ssh_key pubkey,
         case SSH_KEYTYPE_ECDSA_P256:
         case SSH_KEYTYPE_ECDSA_P384:
         case SSH_KEYTYPE_ECDSA_P521:
-        case SSH_KEYTYPE_SK_ECDSA:
 #ifdef HAVE_GCRYPT_ECC
             { /* build ecdsa siganature */
                 ssh_buffer b;
@@ -2377,9 +2347,7 @@ int pki_verify_data_signature(ssh_signature signature,
         break;
     case SSH_DIGEST_AUTO:
         if (pubkey->type == SSH_KEYTYPE_ED25519 ||
-            pubkey->type == SSH_KEYTYPE_ED25519_CERT01 ||
-            pubkey->type == SSH_KEYTYPE_SK_ED25519 ||
-            pubkey->type == SSH_KEYTYPE_SK_ED25519_CERT01)
+            pubkey->type == SSH_KEYTYPE_ED25519_CERT01)
         {
             verify_input = input;
             hlen = input_len;
@@ -2448,8 +2416,6 @@ int pki_verify_data_signature(ssh_signature signature,
         case SSH_KEYTYPE_ECDSA_P256_CERT01:
         case SSH_KEYTYPE_ECDSA_P384_CERT01:
         case SSH_KEYTYPE_ECDSA_P521_CERT01:
-        case SSH_KEYTYPE_SK_ECDSA:
-        case SSH_KEYTYPE_SK_ECDSA_CERT01:
 #ifdef HAVE_GCRYPT_ECC
             err = gcry_sexp_build(&sexp,
                                   NULL,
@@ -2477,8 +2443,6 @@ int pki_verify_data_signature(ssh_signature signature,
 #endif
         case SSH_KEYTYPE_ED25519:
         case SSH_KEYTYPE_ED25519_CERT01:
-        case SSH_KEYTYPE_SK_ED25519:
-        case SSH_KEYTYPE_SK_ED25519_CERT01:
             rc = pki_ed25519_verify(pubkey, signature, verify_input, hlen);
             if (rc != SSH_OK) {
                 SSH_LOG(SSH_LOG_TRACE, "ED25519 error: Signature invalid");
@@ -2495,13 +2459,4 @@ int pki_verify_data_signature(ssh_signature signature,
     return SSH_OK;
 }
 
-int pki_uri_import(const char *uri_name, ssh_key *key, enum ssh_key_e key_type)
-{
-    (void) uri_name;
-    (void) key;
-    (void) key_type;
-    SSH_LOG(SSH_LOG_WARN,
-            "gcrypt does not support PKCS #11");
-    return SSH_ERROR;
-}
 #endif /* HAVE_LIBGCRYPT */
