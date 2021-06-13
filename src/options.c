@@ -1217,11 +1217,6 @@ int ssh_options_getopt(ssh_session session, int *argcptr, char **argv)
     int saveopterr = opterr;
     int opt;
 
-    /* Nothing to do here */
-    if (argc <= 1) {
-        return SSH_OK;
-    }
-
     opterr = 0; /* shut up getopt */
     while((opt = getopt(argc, argv, "c:i:Cl:p:vb:rd12")) != -1) {
         switch(opt) {
@@ -1255,6 +1250,8 @@ int ssh_options_getopt(ssh_session session, int *argcptr, char **argv)
             break;
         default:
             {
+                char optv[3] = "- ";
+                optv[1] = optopt;
                 tmp = realloc(save, (current + 1) * sizeof(char*));
                 if (tmp == NULL) {
                     SAFE_FREE(save);
@@ -1262,21 +1259,15 @@ int ssh_options_getopt(ssh_session session, int *argcptr, char **argv)
                     return -1;
                 }
                 save = tmp;
-                save[current] = argv[optind-1];
+                save[current] = strdup(optv);
+                if (save[current] == NULL) {
+                    SAFE_FREE(save);
+                    ssh_set_error_oom(session);
+                    return -1;
+                }
                 current++;
-                /* We can not use optarg here as getopt does not set it for
-                 * unknown options. We need to manually extract following
-                 * option and skip it manually from further processing */
-                if (optind < argc && argv[optind][0] != '-') {
-                    tmp = realloc(save, (current + 1) * sizeof(char*));
-                    if (tmp == NULL) {
-                        SAFE_FREE(save);
-                        ssh_set_error_oom(session);
-                        return -1;
-                    }
-                    save = tmp;
-                    save[current++] = argv[optind];
-                    optind++;
+                if (optarg) {
+                    save[current++] = argv[optind + 1];
                 }
             }
         } /* switch */
@@ -1370,7 +1361,7 @@ int ssh_options_getopt(ssh_session session, int *argcptr, char **argv)
  *
  * This should be the last call of all options, it may overwrite options which
  * are already set. It requires that the host name is already set with
- * ssh_options_set(SSH_OPTIONS_HOST).
+ * ssh_options_set_host().
  *
  * @param  session      SSH session handle
  *
@@ -1379,7 +1370,7 @@ int ssh_options_getopt(ssh_session session, int *argcptr, char **argv)
  *
  * @return 0 on success, < 0 on error.
  *
- * @see ssh_options_set()
+ * @see ssh_options_set_host()
  */
 int ssh_options_parse_config(ssh_session session, const char *filename) {
   char *expanded_filename;
@@ -1655,10 +1646,6 @@ static int ssh_bind_set_algo(ssh_bind sshbind,
  *                        possible algorithms is created from the list of keys
  *                        set and then filtered against this list.
  *                        (const char *, comma-separated list).
- * 
- *                      - SSH_BIND_OPTIONS_MODULI
- *                        Set the path to the moduli file. Defaults to
- *                        /etc/ssh/moduli if not specified (const char *).
  *
  * @param  value        The value to set. This is a generic pointer and the
  *                      datatype which should be used is described at the
@@ -2007,19 +1994,6 @@ int ssh_bind_options_set(ssh_bind sshbind, enum ssh_bind_options_e type,
             sshbind->config_processed = !(*x);
         }
         break;
-    case SSH_BIND_OPTIONS_MODULI:
-        if (value == NULL) {
-            ssh_set_error_invalid(sshbind);
-            return -1;
-        } else {
-            SAFE_FREE(sshbind->moduli_file);
-            sshbind->moduli_file = strdup(value);
-            if (sshbind->moduli_file == NULL) {
-                ssh_set_error_oom(sshbind);
-                return -1;
-            }
-        }
-        break;
     default:
       ssh_set_error(sshbind, SSH_REQUEST_DENIED, "Unknown ssh option %d", type);
       return -1;
@@ -2031,8 +2005,7 @@ int ssh_bind_options_set(ssh_bind sshbind, enum ssh_bind_options_e type,
 
 static char *ssh_bind_options_expand_escape(ssh_bind sshbind, const char *s)
 {
-    char buf[MAX_BUF_SIZE];
-    char *r, *x = NULL;
+    char *buf, *r, *x = NULL;
     const char *p;
     size_t i, l;
 
@@ -2048,6 +2021,12 @@ static char *ssh_bind_options_expand_escape(ssh_bind sshbind, const char *s)
         return NULL;
     }
 
+    buf = malloc(MAX_BUF_SIZE);
+    if (buf == NULL) {
+        free(r);
+        return NULL;
+    }
+
     p = r;
     buf[0] = '\0';
 
@@ -2056,6 +2035,7 @@ static char *ssh_bind_options_expand_escape(ssh_bind sshbind, const char *s)
             buf[i] = *p;
             i++;
             if (i >= MAX_BUF_SIZE) {
+                free(buf);
                 free(r);
                 return NULL;
             }
@@ -2075,12 +2055,14 @@ static char *ssh_bind_options_expand_escape(ssh_bind sshbind, const char *s)
             default:
                 ssh_set_error(sshbind, SSH_FATAL,
                         "Wrong escape sequence detected");
+                free(buf);
                 free(r);
                 return NULL;
         }
 
         if (x == NULL) {
             ssh_set_error_oom(sshbind);
+            free(buf);
             free(r);
             return NULL;
         }
@@ -2089,6 +2071,7 @@ static char *ssh_bind_options_expand_escape(ssh_bind sshbind, const char *s)
         if (i >= MAX_BUF_SIZE) {
             ssh_set_error(sshbind, SSH_FATAL,
                     "String too long");
+            free(buf);
             free(x);
             free(r);
             return NULL;
@@ -2100,7 +2083,9 @@ static char *ssh_bind_options_expand_escape(ssh_bind sshbind, const char *s)
     }
 
     free(r);
-    return strdup(buf);
+
+    /*strip the unused space by realloc */
+    return realloc(buf, strlen(buf) + 1);
 }
 
 /**
