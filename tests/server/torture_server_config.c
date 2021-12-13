@@ -44,6 +44,7 @@ const char template[] = "temp_dir_XXXXXX";
 
 struct test_server_st {
     struct torture_state *state;
+    struct server_state_st *ss;
     char *cwd;
     char *temp_dir;
     char ed25519_hostkey[1024];
@@ -194,19 +195,78 @@ static int teardown_temp_dir(void **state)
     return 0;
 }
 
+static struct server_state_st *setup_server_state(char *config_file,
+                                                  bool parse_global)
+{
+    struct server_state_st *ss = NULL;
+
+    assert_non_null(config_file);
+
+    /* Create default server state */
+    ss = (struct server_state_st *)calloc(1, sizeof(struct server_state_st));
+    assert_non_null(ss);
+
+    ss->address = strdup("127.0.0.10");
+    assert_non_null(ss->address);
+
+    ss->port = 22;
+    ss->host_key = NULL;
+
+    /* Use default username and password (set in default_handle_session_cb) */
+    ss->expected_username = NULL;
+    ss->expected_password = NULL;
+
+    ss->verbosity = torture_libssh_verbosity();
+    ss->auth_methods = SSH_AUTH_METHOD_PASSWORD | SSH_AUTH_METHOD_PUBLICKEY;
+
+    /* TODO make configurable */
+    ss->max_tries = 3;
+    ss->error = 0;
+
+    /* Use the default session handling function */
+    ss->handle_session = default_handle_session_cb;
+    assert_non_null(ss->handle_session);
+
+    /* Set if should parse global configuration before */
+    ss->parse_global_config = parse_global;
+
+    /* Set the config file to be used */
+    ss->config_file = strdup(config_file);
+    assert_non_null(ss->config_file);
+
+    return ss;
+}
+
 static int start_server(void **state)
 {
     struct test_server_st *tss = *state;
     struct torture_state *s;
+    struct server_state_st *ss;
+
+    char pid_str[1024];
+    pid_t pid;
 
     assert_non_null(tss);
 
     s = tss->state;
     assert_non_null(s);
 
+    ss = tss->ss;
+    assert_non_null(ss);
+
     /* Start the server using the default values */
-    torture_setup_libssh_server((void **)&s, "./test_server/test_server");
-    assert_non_null(s);
+    pid = fork_run_server(ss);
+    if (pid < 0) {
+        fail();
+    }
+
+    snprintf(pid_str, sizeof(pid_str), "%d", pid);
+
+    torture_write_file(s->srv_pidfile, (const char *)pid_str);
+
+    /* TODO properly wait for the server (use ping approach) */
+    /* Wait 200ms */
+    usleep(200 * 1000);
 
     return 0;
 }
@@ -225,7 +285,9 @@ static int stop_server(void **state)
     assert_non_null(s);
 
     rc = torture_terminate_process(s->srv_pidfile);
-    assert_return_code(rc, errno);
+    if (rc != 0) {
+        fprintf(stderr, "XXXXXX Failed to terminate sshd\n");
+    }
 
     unlink(s->srv_pidfile);
 
@@ -237,7 +299,6 @@ static int session_setup(void **state)
     struct test_server_st *tss = *state;
     struct torture_state *s;
     int verbosity = torture_libssh_verbosity();
-    const char *compat_hostkeys = ssh_kex_get_supported_method(SSH_HOSTKEYS);
     struct passwd *pwd;
     bool b = false;
     int rc;
@@ -266,8 +327,6 @@ static int session_setup(void **state)
     /* Make sure no other configuration options from system will get used */
     rc = ssh_options_set(s->ssh.session, SSH_OPTIONS_PROCESS_CONFIG, &b);
     assert_ssh_return_code(s->ssh.session, rc);
-    rc = ssh_options_set(s->ssh.session, SSH_OPTIONS_HOSTKEYS, compat_hostkeys);
-    assert_ssh_return_code(s->ssh.session, rc);
 
     return 0;
 }
@@ -292,7 +351,9 @@ static int try_config_content(void **state, const char *config_content,
                               bool parse_global)
 {
     struct test_server_st *tss = *state;
+    struct server_state_st *ss;
     struct torture_state *s;
+    char config_file[1024];
     int rc;
 
     ssh_session session;
@@ -302,19 +363,23 @@ static int try_config_content(void **state, const char *config_content,
     s = tss->state;
     assert_non_null(s);
 
-    assert_non_null(s->srv_config);
+    /* Prepare the config file to test */
+    snprintf(config_file,
+             sizeof(config_file),
+             "%s/config_file",
+             tss->temp_dir);
 
     if (parse_global) {
         fprintf(stderr, "Using system-wide configuration\n");
-    } else {
-        /* The string is duplicated to not break the cleanup on error */
-        s->srv_additional_config = strdup("-g");
     }
+    fprintf(stderr, "Trying content: \n\n%s\n", config_content);
 
-    torture_write_file(s->srv_config, config_content);
+    torture_write_file(config_file, config_content);
 
-    fprintf(stderr, "Config file %s content: \n\n%s\n", s->srv_config,
-            config_content);
+    ss = setup_server_state(config_file, parse_global);
+    assert_non_null(ss);
+
+    tss->ss = ss;
 
     rc = start_server(state);
     assert_int_equal(rc, 0);
@@ -349,7 +414,10 @@ static int try_config_content(void **state, const char *config_content,
     rc = stop_server(state);
     assert_int_equal(rc, 0);
 
-    SAFE_FREE(s->srv_additional_config);
+    free_server_state(tss->ss);
+    SAFE_FREE(tss->ss);
+
+    unlink(config_file);
 
     return 0;
 }
@@ -703,103 +771,6 @@ static void torture_server_config_unknown(void **state)
     assert_int_equal(rc, 0);
 }
 
-/*
- * Check that the server returns the correct signature when the negotiated host
- * key is RSA but the signature algorithm is not the server's preferred
- * algorithm (e.g. when the client prefers ssh-rsa over rsa-sha2-256 or
- * rsa-sha2-512).
- *
- * Related: T191, T240
- */
-static void torture_server_config_rsa_hostkey_order(void **state)
-{
-    struct test_server_st *tss = *state;
-    struct torture_state *s = NULL;
-    char config_content[4096];
-    size_t num_hostkey_files;
-    const char *allowed = NULL;
-
-    ssh_session session = NULL;
-
-    int rc;
-
-    assert_non_null(tss);
-    s = tss->state;
-    assert_non_null(s);
-
-    /* Prepare key files */
-    num_hostkey_files = setup_hostkey_files(tss);
-    assert_true(num_hostkey_files > 0);
-
-    /* Create the server configuration file */
-    if (ssh_fips_mode()) {
-        allowed = "rsa-sha2-512,rsa-sha2-256";
-    } else {
-        allowed = "rsa-sha2-256,ssh-rsa";
-    }
-
-    snprintf(config_content,
-            sizeof(config_content),
-            "HostKey %s\nHostkeyAlgorithms %s\n",
-            tss->rsa_hostkey, allowed);
-
-    assert_non_null(s->srv_config);
-    torture_write_file(s->srv_config, config_content);
-
-    fprintf(stderr, "Config file %s content: \n\n%s\n", s->srv_config,
-            config_content);
-    fflush(stderr);
-
-    /* Start server */
-    rc = start_server(state);
-    assert_int_equal(rc, 0);
-
-    /* Setup session */
-    rc = session_setup(state);
-    assert_int_equal(rc, 0);
-
-    session = s->ssh.session;
-    assert_non_null(session);
-
-    rc = ssh_options_set(session, SSH_OPTIONS_USER, TORTURE_SSH_USER_ALICE);
-    assert_int_equal(rc, SSH_OK);
-
-    /* Set client order of preference different from the server */
-    if (ssh_fips_mode()) {
-        /* Set the host keys with rsa-sha2-256 before rsa-sha2-512 */
-        rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS,
-                             "rsa-sha2-256,rsa-sha2-512");
-        assert_int_equal(rc, SSH_OK);
-    } else {
-        /* Set the host keys with ssh-rsa before rsa-sha2-256 */
-        rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS,
-                             "ssh-rsa,rsa-sha2-256");
-        assert_int_equal(rc, SSH_OK);
-    }
-
-    rc = ssh_connect(session);
-    assert_int_equal(rc, SSH_OK);
-
-    rc = ssh_userauth_none(session, NULL);
-    /* This request should return a SSH_REQUEST_DENIED error */
-    if (rc == SSH_ERROR) {
-        assert_int_equal(ssh_get_error_code(session), SSH_REQUEST_DENIED);
-    }
-    rc = ssh_userauth_list(session, NULL);
-    assert_true(rc & SSH_AUTH_METHOD_PUBLICKEY);
-
-    rc = ssh_userauth_publickey_auto(session, NULL, NULL);
-    assert_ssh_return_code(session, rc);
-
-    rc = session_teardown(state);
-    assert_int_equal(rc, 0);
-
-    rc = stop_server(state);
-    assert_int_equal(rc, 0);
-
-    SAFE_FREE(s->srv_additional_config);
-}
-
 int torture_run_tests(void) {
     int rc;
     struct CMUnitTest tests[] = {
@@ -814,8 +785,6 @@ int torture_run_tests(void) {
         cmocka_unit_test_setup_teardown(torture_server_config_hostkey_algorithms,
                                         setup_temp_dir, teardown_temp_dir),
         cmocka_unit_test_setup_teardown(torture_server_config_unknown,
-                                        setup_temp_dir, teardown_temp_dir),
-        cmocka_unit_test_setup_teardown(torture_server_config_rsa_hostkey_order,
                                         setup_temp_dir, teardown_temp_dir),
     };
 
