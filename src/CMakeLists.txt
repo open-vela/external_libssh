@@ -16,7 +16,7 @@ if (WIN32)
   )
 endif (WIN32)
 
-if (OPENSSL_CRYPTO_LIBRARY)
+if (OPENSSL_CRYPTO_LIBRARIES)
   set(LIBSSH_PRIVATE_INCLUDE_DIRS
     ${LIBSSH_PRIVATE_INCLUDE_DIRS}
     ${OPENSSL_INCLUDE_DIR}
@@ -24,9 +24,9 @@ if (OPENSSL_CRYPTO_LIBRARY)
 
   set(LIBSSH_LINK_LIBRARIES
     ${LIBSSH_LINK_LIBRARIES}
-    ${OPENSSL_CRYPTO_LIBRARY}
+    ${OPENSSL_CRYPTO_LIBRARIES}
   )
-endif (OPENSSL_CRYPTO_LIBRARY)
+endif (OPENSSL_CRYPTO_LIBRARIES)
 
 if (MBEDTLS_CRYPTO_LIBRARY)
     set(LIBSSH_PRIVATE_INCLUDE_DIRS
@@ -112,6 +112,7 @@ set(libssh_SRCS
   config.c
   connect.c
   connector.c
+  crypto_common.c
   curve25519.c
   dh.c
   ecdh.c
@@ -143,9 +144,6 @@ set(libssh_SRCS
   wrapper.c
   external/bcrypt_pbkdf.c
   external/blowfish.c
-  external/chacha.c
-  external/poly1305.c
-  chachapoly.c
   config_parser.c
   token.c
   pki_ed25519_common.c
@@ -191,6 +189,14 @@ if (WITH_GCRYPT)
         external/ge25519.c
         external/sc25519.c
        )
+    if (NOT HAVE_GCRYPT_CHACHA_POLY)
+        set(libssh_SRCS
+            ${libssh_SRCS}
+            external/chacha.c
+            external/poly1305.c
+            chachapoly.c
+        )
+    endif (NOT HAVE_GCRYPT_CHACHA_POLY)
 elseif (WITH_MBEDTLS)
     set(libssh_SRCS
         ${libssh_SRCS}
@@ -206,6 +212,15 @@ elseif (WITH_MBEDTLS)
         external/ge25519.c
         external/sc25519.c
        )
+    if (NOT (HAVE_MBEDTLS_CHACHA20_H AND HAVE_MBEDTLS_POLY1305_H))
+        set(libssh_SRCS
+            ${libssh_SRCS}
+            external/chacha.c
+            external/poly1305.c
+            chachapoly.c
+           )
+    endif()
+
 else (WITH_GCRYPT)
     set(libssh_SRCS
         ${libssh_SRCS}
@@ -225,6 +240,14 @@ else (WITH_GCRYPT)
             external/sc25519.c
            )
     endif (NOT HAVE_OPENSSL_ED25519)
+    if (NOT (HAVE_OPENSSL_EVP_CHACHA20 AND HAVE_OPENSSL_EVP_POLY1305))
+        set(libssh_SRCS
+            ${libssh_SRCS}
+            external/chacha.c
+            external/poly1305.c
+            chachapoly.c
+        )
+    endif (NOT (HAVE_OPENSSL_EVP_CHACHA20 AND HAVE_OPENSSL_EVP_POLY1305))
     if(OPENSSL_VERSION VERSION_LESS "1.1.0")
         set(libssh_SRCS ${libssh_SRCS} libcrypto-compat.c)
     endif()
@@ -331,7 +354,7 @@ target_link_libraries(ssh
                       PRIVATE ${LIBSSH_LINK_LIBRARIES})
 
 if (WIN32 AND NOT BUILD_SHARED_LIBS)
-    set_target_properties(ssh PROPERTIES COMPILE_FLAGS "-DLIBSSH_STATIC")
+    target_compile_definitions(ssh PUBLIC "LIBSSH_STATIC")
 endif ()
 
 add_library(ssh::ssh ALIAS ssh)
@@ -342,9 +365,7 @@ if (WITH_SYMBOL_VERSIONING AND HAVE_LD_VERSION_SCRIPT)
         set(MAP_PATH "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}_dev.map")
     endif (ABIMAP_FOUND)
 
-    set_target_properties(ssh
-                          PROPERTIES LINK_FLAGS
-                          "-Wl,--version-script,\"${MAP_PATH}\"")
+    target_link_libraries(ssh PRIVATE "-Wl,--version-script,\"${MAP_PATH}\"")
 endif (WITH_SYMBOL_VERSIONING AND HAVE_LD_VERSION_SCRIPT)
 
 set_target_properties(ssh
@@ -358,12 +379,12 @@ set_target_properties(ssh
 )
 
 if (WITH_VISIBILITY_HIDDEN)
-  set_target_properties(ssh PROPERTIES COMPILE_FLAGS "-fvisibility=hidden")
+    set_target_properties(ssh PROPERTIES C_VISIBILITY_PRESET hidden)
 endif (WITH_VISIBILITY_HIDDEN)
 
 if (MINGW)
-    set_target_properties(ssh PROPERTIES LINK_FLAGS "-Wl,--enable-stdcall-fixup")
-    set_target_properties(ssh PROPERTIES COMPILE_FLAGS "-D_POSIX_SOURCE")
+    target_link_libraries(ssh PRIVATE "-Wl,--enable-stdcall-fixup")
+    target_compile_definitions(ssh PRIVATE "_POSIX_SOURCE")
 endif ()
 
 
@@ -412,12 +433,7 @@ if (BUILD_STATIC_LIB)
   )
 
   if (WIN32)
-    set_target_properties(
-      ssh-static
-        PROPERTIES
-          COMPILE_FLAGS
-            "-DLIBSSH_STATIC"
-    )
+    target_compile_definitions(ssh-static PUBLIC "LIBSSH_STATIC")
   endif (WIN32)
 endif (BUILD_STATIC_LIB)
 
