@@ -214,7 +214,6 @@ int pki_ed25519_public_key_to_blob(ssh_buffer buffer, ssh_key key)
 ssh_string pki_ed25519_signature_to_blob(ssh_signature sig)
 {
     ssh_string sig_blob;
-    int rc;
 
 #ifdef HAVE_OPENSSL_ED25519
     /* When using the OpenSSL implementation, the signature is stored in raw_sig
@@ -236,15 +235,11 @@ ssh_string pki_ed25519_signature_to_blob(ssh_signature sig)
     }
 
 #ifdef HAVE_OPENSSL_ED25519
-    rc = ssh_string_fill(sig_blob, ssh_string_data(sig->raw_sig),
-                         ssh_string_len(sig->raw_sig));
+    ssh_string_fill(sig_blob, ssh_string_data(sig->raw_sig),
+                    ssh_string_len(sig->raw_sig));
 #else
-    rc = ssh_string_fill(sig_blob, sig->ed25519_sig, ED25519_SIG_LEN);
+    ssh_string_fill(sig_blob, sig->ed25519_sig, ED25519_SIG_LEN);
 #endif
-    if (rc < 0) {
-        SSH_STRING_FREE(sig_blob);
-        return NULL;
-    }
 
     return sig_blob;
 }
