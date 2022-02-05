@@ -21,7 +21,6 @@
 #ifndef PKI_H_
 #define PKI_H_
 
-#include <stdint.h>
 #include "libssh/priv.h"
 #ifdef HAVE_OPENSSL_EC_H
 #include <openssl/ec.h>
@@ -29,9 +28,7 @@
 #ifdef HAVE_OPENSSL_ECDSA_H
 #include <openssl/ecdsa.h>
 #endif
-#ifdef HAVE_LIBCRYPTO
-#include <openssl/evp.h>
-#endif
+
 #include "libssh/crypto.h"
 #ifdef HAVE_OPENSSL_ED25519
 /* If using OpenSSL implementation, define the signature lenght which would be
@@ -49,7 +46,6 @@
 #define SSH_KEY_FLAG_EMPTY   0x0
 #define SSH_KEY_FLAG_PUBLIC  0x0001
 #define SSH_KEY_FLAG_PRIVATE 0x0002
-#define SSH_KEY_FLAG_PKCS11_URI 0x0004
 
 struct ssh_key_struct {
     enum ssh_keytypes_e type;
@@ -67,7 +63,6 @@ struct ssh_key_struct {
 #elif defined(HAVE_LIBCRYPTO)
     DSA *dsa;
     RSA *rsa;
-    EVP_PKEY *key; /* Saving the OpenSSL context here to save time while converting*/
 # if defined(HAVE_OPENSSL_ECC)
     EC_KEY *ecdsa;
 # else
@@ -81,7 +76,6 @@ struct ssh_key_struct {
     ed25519_pubkey *ed25519_pubkey;
     ed25519_privkey *ed25519_privkey;
 #endif
-    ssh_string sk_application;
     void *cert;
     enum ssh_keytypes_e cert_type;
 };
@@ -102,10 +96,6 @@ struct ssh_signature_struct {
     ed25519_signature *ed25519_sig;
 #endif
     ssh_string raw_sig;
-
-    /* Security Key specific additions */
-    uint8_t sk_flags;
-    uint32_t sk_counter;
 };
 
 typedef struct ssh_signature_struct *ssh_signature;
@@ -129,16 +119,12 @@ enum ssh_digest_e ssh_key_hash_from_name(const char *name);
 #define is_cert_type(kt)\
       ((kt) == SSH_KEYTYPE_DSS_CERT01 ||\
        (kt) == SSH_KEYTYPE_RSA_CERT01 ||\
-       (kt) == SSH_KEYTYPE_SK_ECDSA_CERT01 ||\
-       (kt) == SSH_KEYTYPE_SK_ED25519_CERT01 ||\
       ((kt) >= SSH_KEYTYPE_ECDSA_P256_CERT01 &&\
        (kt) <= SSH_KEYTYPE_ED25519_CERT01))
 
 /* SSH Signature Functions */
 ssh_signature ssh_signature_new(void);
 void ssh_signature_free(ssh_signature sign);
-#define SSH_SIGNATURE_FREE(x) \
-    do { ssh_signature_free(x); x = NULL; } while(0)
 
 int ssh_pki_export_signature_blob(const ssh_signature sign,
                                   ssh_string *sign_blob);
@@ -176,9 +162,4 @@ ssh_public_key ssh_pki_convert_key_to_publickey(const ssh_key key);
 ssh_private_key ssh_pki_convert_key_to_privatekey(const ssh_key key);
 
 int ssh_key_algorithm_allowed(ssh_session session, const char *type);
-
-/* PKCS11 URI function to check if filename is a path or a PKCS11 URI */
-bool ssh_pki_is_uri(const char *filename);
-char *ssh_pki_export_pub_uri_from_priv_uri(const char *priv_uri);
-
 #endif /* PKI_H_ */

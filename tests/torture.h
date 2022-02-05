@@ -54,7 +54,6 @@
 #define TORTURE_SSH_USER_BOB_PASSWORD "secret"
 
 #define TORTURE_SSH_USER_ALICE "alice"
-#define TORTURE_SSH_USER_CHARLIE "charlie"
 
 /* Used by main to communicate with parse_opt. */
 struct argument_s {
@@ -82,7 +81,6 @@ struct torture_state {
 #ifdef WITH_PCAP
     ssh_pcap_file plain_pcap;
 #endif
-    void *private_data;
 };
 
 #ifndef ZERO_STRUCT
@@ -113,7 +111,6 @@ ssh_bind torture_ssh_bind(const char *addr,
                           const char *private_key_file);
 
 struct torture_sftp *torture_sftp_session(ssh_session session);
-struct torture_sftp *torture_sftp_session_channel(ssh_session session, ssh_channel channel);
 void torture_sftp_close(struct torture_sftp *t);
 
 void torture_write_file(const char *filename, const char *data);
@@ -124,7 +121,6 @@ void _torture_filter_tests(struct CMUnitTest *tests, size_t ntests);
 const char *torture_server_address(int domain);
 int torture_server_port(void);
 
-#ifdef SSHD_EXECUTABLE
 void torture_setup_socket_dir(void **state);
 void torture_setup_sshd_server(void **state, bool pam);
 
@@ -132,27 +128,13 @@ void torture_teardown_socket_dir(void **state);
 void torture_teardown_sshd_server(void **state);
 
 int torture_update_sshd_config(void **state, const char *config);
-#endif /* SSHD_EXECUTABLE */
-
-void torture_setup_tokens(const char *temp_dir,
-                          const char *filename,
-                          const char object_name[],
-                          const char *load_public);
 
 void torture_reset_config(ssh_session session);
-
-void torture_setup_create_libssh_config(void **state);
-
-void torture_setup_libssh_server(void **state, const char *server_path);
 
 /*
  * This function must be defined in every unit test file.
  */
-#if ((defined _WIN32) || (defined _WIN64)) && (defined USE_ATTRIBUTE_WEAK)
-__attribute__((weak)) int torture_run_tests(void);
-#else
 int torture_run_tests(void);
-#endif
 
 char *torture_make_temp_dir(const char *template);
 char *torture_create_temp_file(const char *template);
