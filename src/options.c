@@ -844,10 +844,10 @@ int ssh_options_set(ssh_session session, enum ssh_options_e type,
                 return -1;
             } else {
                 if (strcasecmp(value,"yes")==0){
-                    if(ssh_options_set_algo(session,SSH_COMP_C_S,"zlib@openssh.com,zlib,none") < 0)
+                    if(ssh_options_set_algo(session,SSH_COMP_C_S,"zlib@openssh.com,zlib") < 0)
                         return -1;
                 } else if (strcasecmp(value,"no")==0){
-                    if(ssh_options_set_algo(session,SSH_COMP_C_S,"none,zlib@openssh.com,zlib") < 0)
+                    if(ssh_options_set_algo(session,SSH_COMP_C_S,"none") < 0)
                         return -1;
                 } else {
                     if (ssh_options_set_algo(session, SSH_COMP_C_S, v) < 0)
@@ -862,10 +862,10 @@ int ssh_options_set(ssh_session session, enum ssh_options_e type,
                 return -1;
             } else {
                 if (strcasecmp(value,"yes")==0){
-                    if(ssh_options_set_algo(session,SSH_COMP_S_C,"zlib@openssh.com,zlib,none") < 0)
+                    if(ssh_options_set_algo(session,SSH_COMP_S_C,"zlib@openssh.com,zlib") < 0)
                         return -1;
                 } else if (strcasecmp(value,"no")==0){
-                    if(ssh_options_set_algo(session,SSH_COMP_S_C,"none,zlib@openssh.com,zlib") < 0)
+                    if(ssh_options_set_algo(session,SSH_COMP_S_C,"none") < 0)
                         return -1;
                 } else {
                     if (ssh_options_set_algo(session, SSH_COMP_S_C, v) < 0)
@@ -1217,11 +1217,6 @@ int ssh_options_getopt(ssh_session session, int *argcptr, char **argv)
     int saveopterr = opterr;
     int opt;
 
-    /* Nothing to do here */
-    if (argc <= 1) {
-        return SSH_OK;
-    }
-
     opterr = 0; /* shut up getopt */
     while((opt = getopt(argc, argv, "c:i:Cl:p:vb:rd12")) != -1) {
         switch(opt) {
@@ -1255,6 +1250,8 @@ int ssh_options_getopt(ssh_session session, int *argcptr, char **argv)
             break;
         default:
             {
+                char optv[3] = "- ";
+                optv[1] = optopt;
                 tmp = realloc(save, (current + 1) * sizeof(char*));
                 if (tmp == NULL) {
                     SAFE_FREE(save);
@@ -1262,21 +1259,15 @@ int ssh_options_getopt(ssh_session session, int *argcptr, char **argv)
                     return -1;
                 }
                 save = tmp;
-                save[current] = argv[optind-1];
+                save[current] = strdup(optv);
+                if (save[current] == NULL) {
+                    SAFE_FREE(save);
+                    ssh_set_error_oom(session);
+                    return -1;
+                }
                 current++;
-                /* We can not use optarg here as getopt does not set it for
-                 * unknown options. We need to manually extract following
-                 * option and skip it manually from further processing */
-                if (optind < argc && argv[optind][0] != '-') {
-                    tmp = realloc(save, (current + 1) * sizeof(char*));
-                    if (tmp == NULL) {
-                        SAFE_FREE(save);
-                        ssh_set_error_oom(session);
-                        return -1;
-                    }
-                    save = tmp;
-                    save[current++] = argv[optind];
-                    optind++;
+                if (optarg) {
+                    save[current++] = argv[optind + 1];
                 }
             }
         } /* switch */
@@ -1370,7 +1361,7 @@ int ssh_options_getopt(ssh_session session, int *argcptr, char **argv)
  *
  * This should be the last call of all options, it may overwrite options which
  * are already set. It requires that the host name is already set with
- * ssh_options_set(SSH_OPTIONS_HOST).
+ * ssh_options_set_host().
  *
  * @param  session      SSH session handle
  *
@@ -1379,7 +1370,7 @@ int ssh_options_getopt(ssh_session session, int *argcptr, char **argv)
  *
  * @return 0 on success, < 0 on error.
  *
- * @see ssh_options_set()
+ * @see ssh_options_set_host()
  */
 int ssh_options_parse_config(ssh_session session, const char *filename) {
   char *expanded_filename;
@@ -1655,10 +1646,6 @@ static int ssh_bind_set_algo(ssh_bind sshbind,
  *                        possible algorithms is created from the list of keys
  *                        set and then filtered against this list.
  *                        (const char *, comma-separated list).
- * 
- *                      - SSH_BIND_OPTIONS_MODULI
- *                        Set the path to the moduli file. Defaults to
- *                        /etc/ssh/moduli if not specified (const char *).
  *
  * @param  value        The value to set. This is a generic pointer and the
  *                      datatype which should be used is described at the
@@ -2005,19 +1992,6 @@ int ssh_bind_options_set(ssh_bind sshbind, enum ssh_bind_options_e type,
         } else {
             bool *x = (bool *)value;
             sshbind->config_processed = !(*x);
-        }
-        break;
-    case SSH_BIND_OPTIONS_MODULI:
-        if (value == NULL) {
-            ssh_set_error_invalid(sshbind);
-            return -1;
-        } else {
-            SAFE_FREE(sshbind->moduli_file);
-            sshbind->moduli_file = strdup(value);
-            if (sshbind->moduli_file == NULL) {
-                ssh_set_error_oom(sshbind);
-                return -1;
-            }
         }
         break;
     default:

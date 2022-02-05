@@ -37,14 +37,10 @@
  *
  * SCP protocol over SSH functions
  *
- * @deprecated Please use SFTP instead
- *
  * @{
  */
 
 /**
- * @deprecated Please use SFTP instead
- *
  * @brief Create a new scp session.
  *
  * @param[in]  session  The SSH session to use.
@@ -112,8 +108,6 @@ error:
 }
 
 /**
- * @deprecated Please use SFTP instead
- *
  * @brief Initialize the scp channel.
  *
  * @param[in]  scp      The scp context to initialize.
@@ -236,8 +230,6 @@ int ssh_scp_init(ssh_scp scp)
 }
 
 /**
- * @deprecated Please use SFTP instead
- *
  * @brief Close the scp channel.
  *
  * @param[in]  scp      The scp context to close.
@@ -285,8 +277,6 @@ int ssh_scp_close(ssh_scp scp)
 }
 
 /**
- * @deprecated Please use SFTP instead
- *
  * @brief Free a scp context.
  *
  * @param[in]  scp      The context to free.
@@ -314,8 +304,6 @@ void ssh_scp_free(ssh_scp scp)
 }
 
 /**
- * @deprecated Please use SFTP instead
- *
  * @brief Create a directory in a scp in sink mode.
  *
  * @param[in]  scp      The scp handle.
@@ -411,8 +399,6 @@ error:
 }
 
 /**
- * @deprecated Please use SFTP instead
- *
  * @brief Leave a directory.
  *
  * @returns             SSH_OK if the directory has been left, SSH_ERROR if an
@@ -450,8 +436,6 @@ int ssh_scp_leave_directory(ssh_scp scp)
 }
 
 /**
- * @deprecated Please use SFTP instead
- *
  * @brief Initialize the sending of a file to a scp in sink mode, using a 64-bit
  * size.
  *
@@ -556,8 +540,6 @@ error:
 }
 
 /**
- * @deprecated Please use SFTP instead
- *
  * @brief Initialize the sending of a file to a scp in sink mode.
  *
  * @param[in]  scp      The scp handle.
@@ -579,8 +561,6 @@ int ssh_scp_push_file(ssh_scp scp, const char *filename, size_t size, int mode)
 
 /**
  * @internal
- *
- * @deprecated Please use SFTP instead
  *
  * @brief Wait for a response of the scp server.
  *
@@ -648,8 +628,6 @@ int ssh_scp_response(ssh_scp scp, char **response)
 }
 
 /**
- * @deprecated Please use SFTP instead
- *
  * @brief Write into a remote scp file.
  *
  * @param[in]  scp      The scp handle.
@@ -724,8 +702,6 @@ int ssh_scp_write(ssh_scp scp, const void *buffer, size_t len)
 }
 
 /**
- * @deprecated Please use SFTP instead
- *
  * @brief Read a string on a channel, terminated by '\n'
  *
  * @param[in]  scp      The scp handle.
@@ -772,8 +748,6 @@ int ssh_scp_read_string(ssh_scp scp, char *buffer, size_t len)
 }
 
 /**
- * @deprecated Please use SFTP instead
- *
  * @brief Wait for a scp request (file, directory).
  *
  * @returns             SSH_SCP_REQUEST_NEWFILE:       The other side is sending
@@ -895,8 +869,6 @@ error:
 }
 
 /**
- * @deprecated Please use SFTP instead
- *
  * @brief Deny the transfer of a file or creation of a directory coming from the
  * remote party.
  *
@@ -943,8 +915,6 @@ int ssh_scp_deny_request(ssh_scp scp, const char *reason)
 }
 
 /**
- * @deprecated Please use SFTP instead
- *
  * @brief Accepts transfer of a file or creation of a directory coming from the
  * remote party.
  *
@@ -981,11 +951,7 @@ int ssh_scp_accept_request(ssh_scp scp)
     return SSH_OK;
 }
 
-/**
- * @deprecated Please use SFTP instead
- *
- * @brief Read from a remote scp file
- *
+/** @brief Read from a remote scp file
  * @param[in]  scp      The scp handle.
  *
  * @param[in]  buffer   The destination buffer.
@@ -1056,8 +1022,6 @@ int ssh_scp_read(ssh_scp scp, void *buffer, size_t size)
 }
 
 /**
- * @deprecated Please use SFTP instead
- *
  * @brief Get the name of the directory or file being pushed from the other
  * party.
  *
@@ -1074,8 +1038,6 @@ const char *ssh_scp_request_get_filename(ssh_scp scp)
 }
 
 /**
- * @deprecated Please use SFTP instead
- *
  * @brief Get the permissions of the directory or file being pushed from the
  * other party.
  *
@@ -1090,10 +1052,7 @@ int ssh_scp_request_get_permissions(ssh_scp scp)
     return scp->request_mode;
 }
 
-/**
- * @deprecated Please use SFTP instead
- *
- * @brief Get the size of the file being pushed from the other party.
+/** @brief Get the size of the file being pushed from the other party.
  *
  * @returns             The numeric size of the file being read.
  * @warning             The real size may not fit in a 32 bits field and may
@@ -1108,10 +1067,7 @@ size_t ssh_scp_request_get_size(ssh_scp scp)
     return (size_t)scp->filelen;
 }
 
-/**
- * @deprecated Please use SFTP instead
- *
- * @brief Get the size of the file being pushed from the other party.
+/** @brief Get the size of the file being pushed from the other party.
  *
  * @returns             The numeric size of the file being read.
  */
@@ -1124,8 +1080,6 @@ uint64_t ssh_scp_request_get_size64(ssh_scp scp)
 }
 
 /**
- * @deprecated Please use SFTP instead
- *
  * @brief Convert a scp text mode to an integer.
  *
  * @param[in]  mode     The mode to convert, e.g. "0644".
@@ -1139,8 +1093,6 @@ int ssh_scp_integer_mode(const char *mode)
 }
 
 /**
- * @deprecated Please use SFTP instead
- *
  * @brief Convert a unix mode into a scp string.
  *
  * @param[in]  mode     The mode to convert, e.g. 420 or 0644.
@@ -1156,8 +1108,6 @@ char *ssh_scp_string_mode(int mode)
 }
 
 /**
- * @deprecated Please use SFTP instead
- *
  * @brief Get the warning string from a scp handle.
  *
  * @param[in]  scp      The scp handle.

@@ -39,6 +39,4 @@ const char *torture_get_testkey_passphrase(void);
 
 const char *torture_get_testkey_pub(enum ssh_keytypes_e type);
 
-const char *torture_get_testkey_pub_pem(enum ssh_keytypes_e type);
-
 #endif /* _TORTURE_KEY_H */
