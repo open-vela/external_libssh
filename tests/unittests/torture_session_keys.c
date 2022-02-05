@@ -48,9 +48,8 @@ struct ssh_cipher_struct fake_out_cipher = {
 };
 
 struct ssh_crypto_struct test_crypto = {
-    .session_id_len = 32,
-    .session_id = secret,
     .digest_len = 32,
+    .session_id = secret,
     .secret_hash = secret,
     .in_cipher = &fake_in_cipher,
     .out_cipher = &fake_out_cipher,
@@ -69,9 +68,7 @@ static void torture_session_keys(UNUSED_PARAM(void **state))
     int rc;
 
     k_string = ssh_string_new(32);
-    rc = ssh_string_fill(k_string, key, 32);
-    assert_int_equal(rc, 0);
-
+    ssh_string_fill(k_string, key, 32);
     test_crypto.shared_secret = ssh_make_string_bn(k_string);
 
     rc = ssh_generate_session_keys(&session);

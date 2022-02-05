@@ -41,6 +41,7 @@
 #endif /* _MSC_VER */
 #else /* _WIN32 */
 #include <fcntl.h>
+#include <spawn.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/socket.h>
@@ -233,7 +234,7 @@ int ssh_socket_pollcallback(struct ssh_poll_handle_struct *p,
                             void *v_s)
 {
     ssh_socket s = (ssh_socket)v_s;
-    void *buffer = NULL;
+    void *buffer;
     ssize_t nread = 0;
     int rc;
     int err = 0;
@@ -870,38 +871,28 @@ int ssh_socket_connect(ssh_socket s,
  * @param in input file descriptor
  * @param out output file descriptor
  */
-void
+pid_t
 ssh_execute_command(const char *command, socket_t in, socket_t out)
 {
-    const char *shell = NULL;
-    const char *args[] = {NULL/*shell*/, "-c", command, NULL};
-    int devnull;
+    const char *const args[] = {"/bin/sh", "-c", command, NULL};
+    posix_spawn_file_actions_t file_actions;
+    pid_t pid;
+    int ret;
 
+    posix_spawn_file_actions_init(&file_actions);
     /* Prepare /dev/null socket for the stderr redirection */
-    devnull = open("/dev/null", O_WRONLY);
-    if (devnull == -1) {
-        SSH_LOG(SSH_LOG_WARNING, "Failed to open /dev/null");
-        exit(1);
-    }
-
-    /* By default, use the current users shell */
-    shell = getenv("SHELL");
-    if (shell == NULL || shell[0] == '\0') {
-        /* Fall back to bash. There are issues with dash or
-         * whatever people tend to link to /bin/sh */
-        shell = "/bin/bash";
-    }
-    args[0] = shell;
-
+    posix_spawn_file_actions_addopen(&file_actions,
+                                     STDERR_FILENO, "/dev/null", O_WRONLY, 0);
     /* redirect in and out to stdin, stdout */
-    dup2(in, 0);
-    dup2(out, 1);
-    /* Ignore anything on the stderr */
-    dup2(devnull, STDERR_FILENO);
-    close(in);
-    close(out);
-    execv(args[0], (char * const *)args);
-    exit(1);
+    posix_spawn_file_actions_adddup2(&file_actions, in, 0);
+    posix_spawn_file_actions_adddup2(&file_actions, out, 1);
+    ret = posix_spawn(&pid, args[0], &file_actions, NULL, (char *const *)args, NULL);
+    posix_spawn_file_actions_destroy(&file_actions);
+    if (ret > 0) {
+        return (pid_t)-ret;
+    }
+
+    return pid;
 }
 
 /**
@@ -918,7 +909,6 @@ int
 ssh_socket_connect_proxycommand(ssh_socket s, const char *command)
 {
     socket_t pair[2];
-    int pid;
     int rc;
 
     if (s->state != SSH_SOCKET_NONE) {
@@ -931,12 +921,7 @@ ssh_socket_connect_proxycommand(ssh_socket s, const char *command)
     }
 
     SSH_LOG(SSH_LOG_PROTOCOL, "Executing proxycommand '%s'", command);
-    pid = fork();
-    if (pid == 0) {
-        ssh_execute_command(command, pair[0], pair[0]);
-        /* Does not return */
-    }
-    s->proxy_pid = pid;
+    s->proxy_pid = ssh_execute_command(command, pair[0], pair[0]);
     close(pair[0]);
     SSH_LOG(SSH_LOG_PROTOCOL, "ProxyCommand connection pipe: [%d,%d]",pair[0],pair[1]);
     ssh_socket_set_fd(s, pair[1]);
