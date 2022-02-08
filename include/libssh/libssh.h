@@ -1,7 +1,7 @@
 /*
  * This file is part of the SSH Library
  *
- * Copyright (c) 2003-2009 by Aris Adamantiadis
+ * Copyright (c) 2003-2022 by Aris Adamantiadis and the libssh team
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -291,6 +291,10 @@ enum ssh_keytypes_e{
   SSH_KEYTYPE_ECDSA_P384_CERT01,
   SSH_KEYTYPE_ECDSA_P521_CERT01,
   SSH_KEYTYPE_ED25519_CERT01,
+  SSH_KEYTYPE_SK_ECDSA,
+  SSH_KEYTYPE_SK_ECDSA_CERT01,
+  SSH_KEYTYPE_SK_ED25519,
+  SSH_KEYTYPE_SK_ED25519_CERT01,
 };
 
 enum ssh_keycmp_e {
@@ -548,6 +552,24 @@ SSH_DEPRECATED LIBSSH_API char *ssh_dump_knownhost(ssh_session session);
 SSH_DEPRECATED LIBSSH_API int ssh_is_server_known(ssh_session session);
 SSH_DEPRECATED LIBSSH_API void ssh_print_hexa(const char *descr, const unsigned char *what, size_t len);
 
+SSH_DEPRECATED LIBSSH_API int ssh_scp_accept_request(ssh_scp scp);
+SSH_DEPRECATED LIBSSH_API int ssh_scp_close(ssh_scp scp);
+SSH_DEPRECATED LIBSSH_API int ssh_scp_deny_request(ssh_scp scp, const char *reason);
+SSH_DEPRECATED LIBSSH_API void ssh_scp_free(ssh_scp scp);
+SSH_DEPRECATED LIBSSH_API int ssh_scp_init(ssh_scp scp);
+SSH_DEPRECATED LIBSSH_API int ssh_scp_leave_directory(ssh_scp scp);
+SSH_DEPRECATED LIBSSH_API ssh_scp ssh_scp_new(ssh_session session, int mode, const char *location);
+SSH_DEPRECATED LIBSSH_API int ssh_scp_pull_request(ssh_scp scp);
+SSH_DEPRECATED LIBSSH_API int ssh_scp_push_directory(ssh_scp scp, const char *dirname, int mode);
+SSH_DEPRECATED LIBSSH_API int ssh_scp_push_file(ssh_scp scp, const char *filename, size_t size, int perms);
+SSH_DEPRECATED LIBSSH_API int ssh_scp_push_file64(ssh_scp scp, const char *filename, uint64_t size, int perms);
+SSH_DEPRECATED LIBSSH_API int ssh_scp_read(ssh_scp scp, void *buffer, size_t size);
+SSH_DEPRECATED LIBSSH_API const char *ssh_scp_request_get_filename(ssh_scp scp);
+SSH_DEPRECATED LIBSSH_API int ssh_scp_request_get_permissions(ssh_scp scp);
+SSH_DEPRECATED LIBSSH_API size_t ssh_scp_request_get_size(ssh_scp scp);
+SSH_DEPRECATED LIBSSH_API uint64_t ssh_scp_request_get_size64(ssh_scp scp);
+SSH_DEPRECATED LIBSSH_API const char *ssh_scp_request_get_warning(ssh_scp scp);
+SSH_DEPRECATED LIBSSH_API int ssh_scp_write(ssh_scp scp, const void *buffer, size_t len);
 
 
 LIBSSH_API int ssh_get_random(void *where,int len,int strong);
@@ -714,24 +736,6 @@ LIBSSH_API void ssh_print_hash(enum ssh_publickey_hash_type type, unsigned char 
 LIBSSH_API int ssh_send_ignore (ssh_session session, const char *data);
 LIBSSH_API int ssh_send_debug (ssh_session session, const char *message, int always_display);
 LIBSSH_API void ssh_gssapi_set_creds(ssh_session session, const ssh_gssapi_creds creds);
-LIBSSH_API int ssh_scp_accept_request(ssh_scp scp);
-LIBSSH_API int ssh_scp_close(ssh_scp scp);
-LIBSSH_API int ssh_scp_deny_request(ssh_scp scp, const char *reason);
-LIBSSH_API void ssh_scp_free(ssh_scp scp);
-LIBSSH_API int ssh_scp_init(ssh_scp scp);
-LIBSSH_API int ssh_scp_leave_directory(ssh_scp scp);
-LIBSSH_API ssh_scp ssh_scp_new(ssh_session session, int mode, const char *location);
-LIBSSH_API int ssh_scp_pull_request(ssh_scp scp);
-LIBSSH_API int ssh_scp_push_directory(ssh_scp scp, const char *dirname, int mode);
-LIBSSH_API int ssh_scp_push_file(ssh_scp scp, const char *filename, size_t size, int perms);
-LIBSSH_API int ssh_scp_push_file64(ssh_scp scp, const char *filename, uint64_t size, int perms);
-LIBSSH_API int ssh_scp_read(ssh_scp scp, void *buffer, size_t size);
-LIBSSH_API const char *ssh_scp_request_get_filename(ssh_scp scp);
-LIBSSH_API int ssh_scp_request_get_permissions(ssh_scp scp);
-LIBSSH_API size_t ssh_scp_request_get_size(ssh_scp scp);
-LIBSSH_API uint64_t ssh_scp_request_get_size64(ssh_scp scp);
-LIBSSH_API const char *ssh_scp_request_get_warning(ssh_scp scp);
-LIBSSH_API int ssh_scp_write(ssh_scp scp, const void *buffer, size_t len);
 LIBSSH_API int ssh_select(ssh_channel *channels, ssh_channel *outchannels, socket_t maxfd,
     fd_set *readfds, struct timeval *timeout);
 LIBSSH_API int ssh_service_request(ssh_session session, const char *service);
@@ -759,6 +763,8 @@ LIBSSH_API int ssh_userauth_publickey(ssh_session session,
 LIBSSH_API int ssh_userauth_agent(ssh_session session,
                                   const char *username);
 #endif
+LIBSSH_API int ssh_userauth_publickey_auto_get_current_identity(ssh_session session,
+                                                                char** value);
 LIBSSH_API int ssh_userauth_publickey_auto(ssh_session session,
                                            const char *username,
                                            const char *passphrase);
