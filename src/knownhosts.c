@@ -620,6 +620,7 @@ int ssh_known_hosts_parse_line(const char *hostname,
     struct ssh_knownhosts_entry *e = NULL;
     char *known_host = NULL;
     char *p;
+    char *save_tok = NULL;
     enum ssh_keytypes_e key_type;
     int match = 0;
     int rc = SSH_OK;
@@ -630,7 +631,7 @@ int ssh_known_hosts_parse_line(const char *hostname,
     }
 
     /* match pattern for hostname or hashed hostname */
-    p = strtok(known_host, " ");
+    p = strtok_r(known_host, " ", &save_tok);
     if (p == NULL ) {
         free(known_host);
         return SSH_ERROR;
@@ -651,9 +652,11 @@ int ssh_known_hosts_parse_line(const char *hostname,
             match = match_hashed_hostname(hostname, p);
         }
 
-        for (q = strtok(p, ",");
+        save_tok = NULL;
+
+        for (q = strtok_r(p, ",", &save_tok);
              q != NULL;
-             q = strtok(NULL, ",")) {
+             q = strtok_r(NULL, ",", &save_tok)) {
             int cmp;
 
             if (q[0] == '[' && hostname[0] != '[') {
@@ -701,7 +704,9 @@ int ssh_known_hosts_parse_line(const char *hostname,
         goto out;
     }
 
-    p = strtok(known_host, " ");
+    save_tok = NULL;
+
+    p = strtok_r(known_host, " ", &save_tok);
     if (p == NULL ) {
         rc = SSH_ERROR;
         goto out;
@@ -714,7 +719,7 @@ int ssh_known_hosts_parse_line(const char *hostname,
     }
 
     /* pubkey type */
-    p = strtok(NULL, " ");
+    p = strtok_r(NULL, " ", &save_tok);
     if (p == NULL) {
         rc = SSH_ERROR;
         goto out;
@@ -728,7 +733,7 @@ int ssh_known_hosts_parse_line(const char *hostname,
     }
 
     /* public key */
-    p = strtok(NULL, " ");
+    p = strtok_r(NULL, " ", &save_tok);
     if (p == NULL) {
         rc = SSH_ERROR;
         goto out;
@@ -746,7 +751,7 @@ int ssh_known_hosts_parse_line(const char *hostname,
     }
 
     /* comment */
-    p = strtok(NULL, " ");
+    p = strtok_r(NULL, " ", &save_tok);
     if (p != NULL) {
         p = strstr(line, p);
         if (p != NULL) {
