@@ -354,9 +354,6 @@ typedef struct ssh_server_callbacks_struct *ssh_server_callbacks;
  * This functions sets the callback structure to use your own callback
  * functions for user authentication, new channels and requests.
  *
- * Note, that the structure is not copied to the session structure so it needs
- * to be valid for the whole session lifetime.
- *
  * @code
  * struct ssh_server_callbacks_struct cb = {
  *   .userdata = data,
@@ -550,9 +547,6 @@ typedef struct ssh_packet_callbacks_struct *ssh_packet_callbacks;
  *
  * This functions sets the callback structure to use your own callback
  * functions for auth, logging and status.
- *
- * Note, that the callback structure is not copied into the session so it needs
- * to be valid for the whole session lifetime.
  *
  * @code
  * struct ssh_callbacks_struct cb = {
@@ -855,11 +849,7 @@ typedef struct ssh_channel_callbacks_struct *ssh_channel_callbacks;
  * @brief Set the channel callback functions.
  *
  * This functions sets the callback structure to use your own callback
- * functions for channel data and exceptions.
- *
- * Note, that the structure is not copied to the channel structure so it needs
- * to be valid as for the whole life of the channel or until it is removed with
- * ssh_remove_channel_callbacks().
+ * functions for channel data and exceptions
  *
  * @code
  * struct ssh_channel_callbacks_struct cb = {
