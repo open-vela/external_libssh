@@ -1,3 +1,5 @@
+#include <nuttx/config.h>
+
 /* Name of package */
 #define PACKAGE "libssh"
 
@@ -19,7 +21,7 @@
 #define HAVE_ARPA_INET_H 1
 
 /* Define to 1 if you have the <glob.h> header file. */
-/* #undef HAVE_GLOB_H */
+#define HAVE_GLOB_H 1
 
 /* Define to 1 if you have the <valgrind/valgrind.h> header file. */
 /* #undef HAVE_VALGRIND_VALGRIND_H */
@@ -40,7 +42,7 @@
 #define HAVE_SYS_TIME_H 1
 
 /* Define to 1 if you have the <sys/utime.h> header file. */
-/* #undef HAVE_SYS_UTIME_H */
+#define HAVE_SYS_UTIME_H 1
 
 /* Define to 1 if you have the <io.h> header file. */
 /* #undef HAVE_IO_H */
@@ -192,7 +194,7 @@
 /* #undef HAVE__STRTOUI64 */
 
 /* Define to 1 if you have the `glob' function. */
-/* #undef HAVE_GLOB */
+#define HAVE_GLOB 1
 
 /* Define to 1 if you have the `explicit_bzero' function. */
 #define HAVE_EXPLICIT_BZERO 1
@@ -215,7 +217,9 @@
 /* #undef HAVE_LIBGCRYPT */
 
 /* Define to 1 if you have the 'mbedTLS' library (-lmbedtls). */
+#ifdef CONFIG_LIB_MBEDTLS
 #define HAVE_LIBMBEDCRYPTO 1
+#endif
 
 /* Define to 1 if you have the `pthread' library (-lpthread). */
 #define HAVE_PTHREAD 1
@@ -225,7 +229,7 @@
 
 /**************************** OPTIONS ****************************/
 
-/* #undef HAVE_GCC_THREAD_LOCAL_STORAGE */
+#define HAVE_GCC_THREAD_LOCAL_STORAGE 1
 /* #undef HAVE_MSC_THREAD_LOCAL_STORAGE */
 
 #define HAVE_FALLTHROUGH_ATTRIBUTE 1
@@ -245,7 +249,9 @@
 /* #undef WITH_GSSAPI */
 
 /* Define to 1 if you want to enable ZLIB */
+#ifdef CONFIG_LIB_ZLIB
 #define WITH_ZLIB 1
+#endif
 
 /* Define to 1 if you want to enable SFTP */
 #define WITH_SFTP 1
@@ -266,7 +272,7 @@
 /* #undef DEBUG_PACKET */
 
 /* Define to 1 if you want to enable pcap output support (experimental) */
-#define WITH_PCAP 1
+/* #undef WITH_PCAP */
 
 /* Define to 1 if you want to enable calltrace debug output */
 /* #undef DEBUG_CALLTRACE */

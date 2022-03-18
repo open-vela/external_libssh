@@ -16,8 +16,6 @@
 
 config LIB_SSH
 	bool "Enable libssh"
-	select LIB_ZLIB
-	select LIB_MBEDTLS
 	select LIBC_EXECFUNCS
 	select PSEUDOTERM
 	select SERIAL_TERMIOS
