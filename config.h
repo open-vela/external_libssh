@@ -42,7 +42,7 @@
 #define HAVE_SYS_TIME_H 1
 
 /* Define to 1 if you have the <sys/utime.h> header file. */
-#define HAVE_SYS_UTIME_H 1
+/* #undef HAVE_SYS_UTIME_H */
 
 /* Define to 1 if you have the <io.h> header file. */
 /* #undef HAVE_IO_H */
@@ -217,9 +217,7 @@
 /* #undef HAVE_LIBGCRYPT */
 
 /* Define to 1 if you have the 'mbedTLS' library (-lmbedtls). */
-#ifdef CONFIG_LIB_MBEDTLS
 #define HAVE_LIBMBEDCRYPTO 1
-#endif
 
 /* Define to 1 if you have the `pthread' library (-lpthread). */
 #define HAVE_PTHREAD 1
