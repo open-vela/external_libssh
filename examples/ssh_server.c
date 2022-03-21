@@ -425,7 +425,7 @@ static int pty_resize(ssh_session session, ssh_channel channel, int cols,
 
 static int exec_pty(const char *mode, const char *command,
                     struct channel_data_struct *cdata) {
-    const char *const args[] = {"/bin/sh", mode, command, NULL};
+    const char *const args[] = {"sh", mode, command, NULL};
     posix_spawn_file_actions_t file_actions;
     posix_spawnattr_t attr;
 
@@ -455,7 +455,7 @@ static int exec_pty(const char *mode, const char *command,
 }
 
 static int exec_nopty(const char *command, struct channel_data_struct *cdata) {
-    const char *const args[] = {"/bin/sh", "-c", command, NULL};
+    const char *const args[] = {"sh", "-c", command, NULL};
     posix_spawn_file_actions_t file_actions;
     int in[2], out[2], err[2];
 
