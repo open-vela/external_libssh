@@ -909,8 +909,15 @@ int main(int argc, char **argv) {
             }
 #else
             pthread_t tid;
-
+#ifdef THREAD_STACKSIZE
+            pthread_attr_t attr;
+            pthread_attr_init(&attr);
+            pthread_attr_setstacksize(&attr, THREAD_STACKSIZE);
+            rc = pthread_create(&tid, &attr, session_thread, session);
+            pthread_attr_destroy(&attr);
+#else
             rc = pthread_create(&tid, NULL, session_thread, session);
+#endif
             if (rc == 0) {
                 pthread_detach(tid);
                 continue;
