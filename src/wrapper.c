@@ -66,6 +66,9 @@ static struct ssh_hmac_struct ssh_hmac_tab[] = {
   { "hmac-sha2-256-etm@openssh.com", SSH_HMAC_SHA256,        true  },
   { "hmac-sha2-512-etm@openssh.com", SSH_HMAC_SHA512,        true  },
   { "hmac-md5-etm@openssh.com",      SSH_HMAC_MD5,           true  },
+#ifdef WITH_INSECURE_NONE
+  { "none",                          SSH_HMAC_NONE,          false },
+#endif /* WITH_INSECURE_NONE */
   { NULL,                            0,                      false }
 };
 
@@ -182,8 +185,9 @@ void crypto_free(struct ssh_crypto_struct *crypto)
         crypto->ecdh_privkey = NULL;
     }
 #endif
+    SAFE_FREE(crypto->dh_server_signature);
     if (crypto->session_id != NULL) {
-        explicit_bzero(crypto->session_id, crypto->digest_len);
+        explicit_bzero(crypto->session_id, crypto->session_id_len);
         SAFE_FREE(crypto->session_id);
     }
     if (crypto->secret_hash != NULL) {
