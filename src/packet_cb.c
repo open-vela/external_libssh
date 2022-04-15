@@ -63,10 +63,10 @@ SSH_PACKET_CALLBACK(ssh_packet_disconnect_callback){
     error = ssh_string_to_char(error_s);
     SSH_STRING_FREE(error_s);
   }
-  SSH_LOG(SSH_LOG_PACKET, "Received SSH_MSG_DISCONNECT %d:%s",
+  SSH_LOG(SSH_LOG_PACKET, "Received SSH_MSG_DISCONNECT %"PRId32":%s",
                           code, error != NULL ? error : "no error");
   ssh_set_error(session, SSH_FATAL,
-      "Received SSH_MSG_DISCONNECT: %d:%s",
+      "Received SSH_MSG_DISCONNECT: %"PRId32":%s",
       code, error != NULL ? error : "no error");
   SAFE_FREE(error);
 
@@ -129,8 +129,6 @@ SSH_PACKET_CALLBACK(ssh_packet_newkeys){
     }
 
     rc = ssh_pki_import_signature_blob(sig_blob, server_key, &sig);
-    ssh_string_burn(sig_blob);
-    SSH_STRING_FREE(sig_blob);
     if (rc != SSH_OK) {
         goto error;
     }
@@ -154,7 +152,9 @@ SSH_PACKET_CALLBACK(ssh_packet_newkeys){
                                   server_key,
                                   session->next_crypto->secret_hash,
                                   session->next_crypto->digest_len);
-    SSH_SIGNATURE_FREE(sig);
+    ssh_string_burn(sig_blob);
+    SSH_STRING_FREE(sig_blob);
+    ssh_signature_free(sig);
     if (rc == SSH_ERROR) {
       goto error;
     }
@@ -170,9 +170,6 @@ SSH_PACKET_CALLBACK(ssh_packet_newkeys){
   session->ssh_connection_callback(session);
   return SSH_PACKET_USED;
 error:
-  SSH_SIGNATURE_FREE(sig);
-  ssh_string_burn(sig_blob);
-  SSH_STRING_FREE(sig_blob);
   session->session_state = SSH_SESSION_STATE_ERROR;
   return SSH_PACKET_USED;
 }
@@ -221,7 +218,7 @@ SSH_PACKET_CALLBACK(ssh_packet_ext_info)
         return SSH_PACKET_USED;
     }
 
-    SSH_LOG(SSH_LOG_PACKET, "Follows %u extensions", nr_extensions);
+    SSH_LOG(SSH_LOG_PACKET, "Follows %"PRIu32" extensions", nr_extensions);
 
     for (i = 0; i < nr_extensions; i++) {
         char *name = NULL;

@@ -976,55 +976,6 @@ struct ssh_auth_auto_state_struct {
 };
 
 /**
- * @brief Get the identity that is currenly being processed by
- * ssh_userauth_publickey_auto()
- *
- * This is meant to be used by a callback that happens as part of the
- * execution of ssh_userauth_publickey_auto().  The auth_function
- * callback might want to know which key a passphrase is needed for,
- * for example.
- *
- * @param[in]  session     The SSH session.
- *
- * @param[out] value       The value to get into. As a char**, space will be
- *                         allocated by the function for the value, it is
- *                         your responsibility to free the memory using
- *                         ssh_string_free_char().
- *
- * @return  SSH_OK on success, SSH_ERROR on error.
- */
-int ssh_userauth_publickey_auto_get_current_identity(ssh_session session,
-                                                     char** value)
-{
-    const char *id = NULL;
-
-    if (session == NULL) {
-        return SSH_ERROR;
-    }
-
-    if (value == NULL) {
-        ssh_set_error_invalid(session);
-        return SSH_ERROR;
-    }
-
-    if (session->auth.auto_state != NULL && session->auth.auto_state->it != NULL) {
-        id = session->auth.auto_state->it->data;
-    }
-
-    if (id == NULL) {
-        return SSH_ERROR;
-    }
-
-    *value = strdup(id);
-    if (*value == NULL) {
-        ssh_set_error_oom(session);
-        return SSH_ERROR;
-    }
-
-    return SSH_OK;
-}
-
-/**
  * @brief Tries to automatically authenticate with public key and "none"
  *
  * It may fail, for instance it doesn't ask for a password and uses a default
@@ -1044,7 +995,8 @@ int ssh_userauth_publickey_auto_get_current_identity(ssh_session session,
  *                            method.\n
  *          SSH_AUTH_PARTIAL: You've been partially authenticated, you still
  *                            have to use another method.\n
- *          SSH_AUTH_SUCCESS: Authentication success\n
+ *          SSH_AUTH_SUCCESS: The public key is accepted, you want now to use
+ *                            ssh_userauth_publickey().\n
  *          SSH_AUTH_AGAIN:   In nonblocking mode, you've got to call this again
  *                            later.
  *
@@ -1109,22 +1061,7 @@ int ssh_userauth_publickey_auto(ssh_session session,
                     "Trying to authenticate with %s", privkey_file);
             state->privkey = NULL;
             state->pubkey = NULL;
-
-            if (ssh_pki_is_uri(privkey_file)) {
-                char *pub_uri_from_priv = NULL;
-                SSH_LOG(SSH_LOG_INFO,
-                        "Authenticating with PKCS #11 URI.");
-                pub_uri_from_priv = ssh_pki_export_pub_uri_from_priv_uri(privkey_file);
-                if (pub_uri_from_priv == NULL) {
-                    return SSH_ERROR;
-                } else {
-                    snprintf(pubkey_file, sizeof(pubkey_file), "%s",
-                             pub_uri_from_priv);
-                    SAFE_FREE(pub_uri_from_priv);
-                }
-            } else {
-                snprintf(pubkey_file, sizeof(pubkey_file), "%s.pub", privkey_file);
-            }
+            snprintf(pubkey_file, sizeof(pubkey_file), "%s.pub", privkey_file);
 
             rc = ssh_pki_import_pubkey_file(pubkey_file, &state->pubkey);
             if (rc == SSH_ERROR) {
@@ -1637,10 +1574,10 @@ SSH_PACKET_CALLBACK(ssh_packet_userauth_info_request) {
     }
 
     SSH_LOG(SSH_LOG_DEBUG,
-            "%d keyboard-interactive prompts", nprompts);
+            "%"PRId32" keyboard-interactive prompts", nprompts);
     if (nprompts > KBDINT_MAX_PROMPT) {
         ssh_set_error(session, SSH_FATAL,
-                "Too much prompts requested by the server: %u (0x%.4x)",
+                "Too much prompts requested by the server: %"PRIu32" (0x%.4"PRIx32")",
                 nprompts, nprompts);
         ssh_kbdint_free(session->kbdint);
         session->kbdint = NULL;

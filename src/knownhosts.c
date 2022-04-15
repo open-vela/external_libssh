@@ -376,7 +376,6 @@ struct ssh_list *ssh_known_hosts_get_algorithms(ssh_session session)
 
     list = ssh_list_new();
     if (list == NULL) {
-        ssh_set_error_oom(session);
         SAFE_FREE(host_port);
         return NULL;
     }
@@ -621,7 +620,6 @@ int ssh_known_hosts_parse_line(const char *hostname,
     struct ssh_knownhosts_entry *e = NULL;
     char *known_host = NULL;
     char *p;
-    char *save_tok = NULL;
     enum ssh_keytypes_e key_type;
     int match = 0;
     int rc = SSH_OK;
@@ -632,7 +630,7 @@ int ssh_known_hosts_parse_line(const char *hostname,
     }
 
     /* match pattern for hostname or hashed hostname */
-    p = strtok_r(known_host, " ", &save_tok);
+    p = strtok(known_host, " ");
     if (p == NULL ) {
         free(known_host);
         return SSH_ERROR;
@@ -653,11 +651,9 @@ int ssh_known_hosts_parse_line(const char *hostname,
             match = match_hashed_hostname(hostname, p);
         }
 
-        save_tok = NULL;
-
-        for (q = strtok_r(p, ",", &save_tok);
+        for (q = strtok(p, ",");
              q != NULL;
-             q = strtok_r(NULL, ",", &save_tok)) {
+             q = strtok(NULL, ",")) {
             int cmp;
 
             if (q[0] == '[' && hostname[0] != '[') {
@@ -705,9 +701,7 @@ int ssh_known_hosts_parse_line(const char *hostname,
         goto out;
     }
 
-    save_tok = NULL;
-
-    p = strtok_r(known_host, " ", &save_tok);
+    p = strtok(known_host, " ");
     if (p == NULL ) {
         rc = SSH_ERROR;
         goto out;
@@ -720,7 +714,7 @@ int ssh_known_hosts_parse_line(const char *hostname,
     }
 
     /* pubkey type */
-    p = strtok_r(NULL, " ", &save_tok);
+    p = strtok(NULL, " ");
     if (p == NULL) {
         rc = SSH_ERROR;
         goto out;
@@ -734,7 +728,7 @@ int ssh_known_hosts_parse_line(const char *hostname,
     }
 
     /* public key */
-    p = strtok_r(NULL, " ", &save_tok);
+    p = strtok(NULL, " ");
     if (p == NULL) {
         rc = SSH_ERROR;
         goto out;
@@ -752,7 +746,7 @@ int ssh_known_hosts_parse_line(const char *hostname,
     }
 
     /* comment */
-    p = strtok_r(NULL, " ", &save_tok);
+    p = strtok(NULL, " ");
     if (p != NULL) {
         p = strstr(line, p);
         if (p != NULL) {

@@ -126,9 +126,8 @@ struct ssh_crypto_struct {
     ssh_curve25519_pubkey curve25519_server_pubkey;
 #endif
     ssh_string dh_server_signature; /* information used by dh_handshake. */
-    size_t session_id_len;
+    size_t digest_len; /* len of the two fields below */
     unsigned char *session_id;
-    size_t digest_len; /* len of the secret hash */
     unsigned char *secret_hash; /* Secret hash is same as session id until re-kex */
     unsigned char *encryptIV;
     unsigned char *decryptIV;
@@ -213,7 +212,5 @@ int sshkdf_derive_key(struct ssh_crypto_struct *crypto,
                       unsigned char *key, size_t key_len,
                       int key_type, unsigned char *output,
                       size_t requested_len);
-
-int secure_memcmp(const void *s1, const void *s2, size_t n);
 
 #endif /* _CRYPTO_H_ */
