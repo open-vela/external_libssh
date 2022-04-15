@@ -30,9 +30,7 @@ The goal is to show the API in action.
 #endif
 #include <signal.h>
 #include <stdlib.h>
-#ifdef HAVE_UTMP_H
-#include <utmp.h>
-#endif
+#include <spawn.h>
 #ifdef HAVE_UTIL_H
 #include <util.h>
 #endif
@@ -397,6 +395,12 @@ static int pty_request(ssh_session session, ssh_channel channel,
         fprintf(stderr, "Failed to open pty\n");
         return SSH_ERROR;
     }
+
+    /* Make pty_slave become the controlling terminal */
+#ifdef TIOCSCTTY
+    ioctl(cdata->pty_slave, TIOCSCTTY, (unsigned long)0);
+#endif
+
     return SSH_OK;
 }
 
@@ -421,28 +425,38 @@ static int pty_resize(ssh_session session, ssh_channel channel, int cols,
 
 static int exec_pty(const char *mode, const char *command,
                     struct channel_data_struct *cdata) {
-    switch(cdata->pid = fork()) {
-        case -1:
-            close(cdata->pty_master);
-            close(cdata->pty_slave);
-            fprintf(stderr, "Failed to fork\n");
-            return SSH_ERROR;
-        case 0:
-            close(cdata->pty_master);
-            if (login_tty(cdata->pty_slave) != 0) {
-                exit(1);
-            }
-            execl("/bin/sh", "sh", mode, command, NULL);
-            exit(0);
-        default:
-            close(cdata->pty_slave);
-            /* pty fd is bi-directional */
-            cdata->child_stdout = cdata->child_stdin = cdata->pty_master;
+    const char *const args[] = {"sh", mode, command, NULL};
+    posix_spawn_file_actions_t file_actions;
+    posix_spawnattr_t attr;
+
+    posix_spawn_file_actions_init(&file_actions);
+    posix_spawn_file_actions_adddup2(&file_actions, cdata->pty_slave, STDIN_FILENO);
+    posix_spawn_file_actions_adddup2(&file_actions, cdata->pty_slave, STDOUT_FILENO);
+    posix_spawn_file_actions_adddup2(&file_actions, cdata->pty_slave, STDERR_FILENO);
+
+    posix_spawnattr_init(&attr);
+#ifdef POSIX_SPAWN_SETSID
+    posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSID);
+#endif
+
+    if (posix_spawn(&cdata->pid, args[0], &file_actions, &attr, (char *const *)args, NULL) != 0) {
+        posix_spawn_file_actions_destroy(&file_actions);
+        posix_spawnattr_destroy(&attr);
+        return SSH_ERROR;
     }
+
+    posix_spawn_file_actions_destroy(&file_actions);
+    posix_spawnattr_destroy(&attr);
+    close(cdata->pty_slave);
+    cdata->pty_slave = -1;
+    /* pty fd is bi-directional */
+    cdata->child_stdout = cdata->child_stdin = cdata->pty_master;
     return SSH_OK;
 }
 
 static int exec_nopty(const char *command, struct channel_data_struct *cdata) {
+    const char *const args[] = {"sh", "-c", command, NULL};
+    posix_spawn_file_actions_t file_actions;
     int in[2], out[2], err[2];
 
     /* Do the plumbing to be able to talk with the child process. */
@@ -456,23 +470,12 @@ static int exec_nopty(const char *command, struct channel_data_struct *cdata) {
         goto stderr_failed;
     }
 
-    switch(cdata->pid = fork()) {
-        case -1:
-            goto fork_failed;
-        case 0:
-            /* Finish the plumbing in the child process. */
-            close(in[1]);
-            close(out[0]);
-            close(err[0]);
-            dup2(in[0], STDIN_FILENO);
-            dup2(out[1], STDOUT_FILENO);
-            dup2(err[1], STDERR_FILENO);
-            close(in[0]);
-            close(out[1]);
-            close(err[1]);
-            /* exec the requested command. */
-            execl("/bin/sh", "sh", "-c", command, NULL);
-            exit(0);
+    posix_spawn_file_actions_init(&file_actions);
+    posix_spawn_file_actions_adddup2(&file_actions, in[0], STDIN_FILENO);
+    posix_spawn_file_actions_adddup2(&file_actions, out[1], STDOUT_FILENO);
+    posix_spawn_file_actions_adddup2(&file_actions, err[1], STDERR_FILENO);
+    if (posix_spawn(&cdata->pid, args[0], &file_actions, NULL, (char *const *)args, NULL) != 0) {
+        goto spawn_failed;
     }
 
     close(in[0]);
@@ -485,7 +488,8 @@ static int exec_nopty(const char *command, struct channel_data_struct *cdata) {
 
     return SSH_OK;
 
-fork_failed:
+spawn_failed:
+    posix_spawn_file_actions_destroy(&file_actions);
     close(err[0]);
     close(err[1]);
 stderr_failed:
@@ -758,10 +762,16 @@ static void handle_session(ssh_event event, ssh_session session) {
     } while(ssh_channel_is_open(sdata.channel) &&
             (cdata.pid == 0 || waitpid(cdata.pid, &rc, WNOHANG) == 0));
 
-    close(cdata.pty_master);
-    close(cdata.child_stdin);
-    close(cdata.child_stdout);
-    close(cdata.child_stderr);
+    if (cdata.pty_slave != -1) {
+        close(cdata.pty_slave);
+    }
+    if (cdata.pty_master != -1) {
+        close(cdata.pty_master);
+    } else {
+        close(cdata.child_stdin);
+        close(cdata.child_stdout);
+        close(cdata.child_stderr);
+    }
 
     /* Remove the descriptors from the polling context, since they are now
      * closed, they will always trigger during the poll calls. */
@@ -899,8 +909,15 @@ int main(int argc, char **argv) {
             }
 #else
             pthread_t tid;
-
+#ifdef THREAD_STACKSIZE
+            pthread_attr_t attr;
+            pthread_attr_init(&attr);
+            pthread_attr_setstacksize(&attr, THREAD_STACKSIZE);
+            rc = pthread_create(&tid, &attr, session_thread, session);
+            pthread_attr_destroy(&attr);
+#else
             rc = pthread_create(&tid, NULL, session_thread, session);
+#endif
             if (rc == 0) {
                 pthread_detach(tid);
                 continue;
