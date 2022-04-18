@@ -255,7 +255,7 @@ static int agent_talk(struct ssh_session_struct *session,
   uint8_t *payload = tmpbuf;
 
   len = ssh_buffer_get_len(request);
-  SSH_LOG(SSH_LOG_TRACE, "Request length: %"PRIu32, len);
+  SSH_LOG(SSH_LOG_TRACE, "Request length: %u", len);
   PUSH_BE_U32(payload, 0, len);
 
   /* send length and then the request packet */
@@ -283,10 +283,10 @@ static int agent_talk(struct ssh_session_struct *session,
   len = PULL_BE_U32(payload, 0);
   if (len > 256 * 1024) {
     ssh_set_error(session, SSH_FATAL,
-        "Authentication response too long: %"PRIu32, len);
+        "Authentication response too long: %u", len);
     return -1;
   }
-  SSH_LOG(SSH_LOG_TRACE, "Response length: %"PRIu32, len);
+  SSH_LOG(SSH_LOG_TRACE, "Response length: %u", len);
 
   payload = ssh_buffer_allocate(reply, len);
   if (payload == NULL) {
@@ -392,7 +392,7 @@ uint32_t ssh_agent_get_ident_count(struct ssh_session_struct *session)
     return session->agent->count;
 }
 
-/* caller has to free commment */
+/* caller has to free comment */
 ssh_key ssh_agent_get_first_ident(struct ssh_session_struct *session,
                               char **comment) {
     if (ssh_agent_get_ident_count(session) > 0) {
@@ -402,7 +402,7 @@ ssh_key ssh_agent_get_first_ident(struct ssh_session_struct *session,
     return NULL;
 }
 
-/* caller has to free commment */
+/* caller has to free comment */
 ssh_key ssh_agent_get_next_ident(struct ssh_session_struct *session,
     char **comment) {
     struct ssh_key_struct *key;
