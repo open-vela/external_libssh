@@ -648,7 +648,7 @@ static int ssh_message_channel_request_reply_default(ssh_message msg) {
     channel = msg->channel_request.channel->remote_channel;
 
     SSH_LOG(SSH_LOG_PACKET,
-        "Sending a default channel_request denied to channel %"PRId32, channel);
+        "Sending a default channel_request denied to channel %d", channel);
 
     rc = ssh_buffer_pack(msg->session->out_buffer,
                          "bd",
@@ -1025,7 +1025,7 @@ int ssh_message_auth_reply_pk_ok_simple(ssh_message msg) {
     ssh_string pubkey_blob = NULL;
     int ret;
 
-    algo = ssh_string_from_char(msg->auth_request.pubkey->type_c);
+    algo = ssh_string_from_char(msg->auth_request.sigtype);
     if (algo == NULL) {
         return SSH_ERROR;
     }
