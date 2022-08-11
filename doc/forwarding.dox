@@ -101,7 +101,7 @@ used to retrieve google's home page from the remote SSH server.
 int direct_forwarding(ssh_session session)
 {
   ssh_channel forwarding_channel;
-  int rc = SSH_ERROR;
+  int rc;
   char *http_get = "GET / HTTP/1.1\nHost: www.google.com\n\n";
   int nbytes, nwritten;
 
@@ -165,8 +165,6 @@ int web_server(ssh_session session)
   char buffer[256];
   int nbytes, nwritten;
   int port = 0;
-  char *peer_address = NULL;
-  int peer_port = 0;
   char *helloworld = ""
 "HTTP/1.1 200 OK\n"
 "Content-Type: text/html\n"
@@ -189,8 +187,7 @@ int web_server(ssh_session session)
     return rc;
   }
 
-  channel = ssh_channel_open_forward_port(session, 60000, &port,
-                                        &peer_address, &peer_port);
+  channel = ssh_channel_accept_forward(session, 60000, &port);
   if (channel == NULL)
   {
     fprintf(stderr, "Error waiting for incoming connection: %s\n",
@@ -207,7 +204,6 @@ int web_server(ssh_session session)
               ssh_get_error(session));
       ssh_channel_send_eof(channel);
       ssh_channel_free(channel);
-      ssh_string_free_char(peer_address);
       return SSH_ERROR;
     }
     if (strncmp(buffer, "GET /", 5)) continue;
@@ -220,15 +216,13 @@ int web_server(ssh_session session)
               ssh_get_error(session));
       ssh_channel_send_eof(channel);
       ssh_channel_free(channel);
-      ssh_string_free_char(peer_address);
       return SSH_ERROR;
     }
-    printf("Sent answer to %s:%d\n", peer_address, peer_port);
+    printf("Sent answer\n");
   }
 
   ssh_channel_send_eof(channel);
   ssh_channel_free(channel);
-  ssh_string_free_char(peer_address);
   return SSH_OK;
 }
 @endcode

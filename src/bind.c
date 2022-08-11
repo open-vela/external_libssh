@@ -79,7 +79,6 @@ static socket_t bind_socket(ssh_bind sshbind, const char *hostname,
     int opt = 1;
     socket_t s;
     int rc;
-    char err_msg[SSH_ERRNO_MSG_MAX] = {0};
 
     ZERO_STRUCT(hints);
 
@@ -99,8 +98,7 @@ static socket_t bind_socket(ssh_bind sshbind, const char *hostname,
                            ai->ai_socktype,
                            ai->ai_protocol);
     if (s == SSH_INVALID_SOCKET) {
-        ssh_set_error(sshbind, SSH_FATAL, "%s",
-                      ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
+        ssh_set_error(sshbind, SSH_FATAL, "%s", strerror(errno));
         freeaddrinfo (ai);
         return -1;
     }
@@ -110,7 +108,7 @@ static socket_t bind_socket(ssh_bind sshbind, const char *hostname,
         ssh_set_error(sshbind,
                       SSH_FATAL,
                       "Setting socket options failed: %s",
-                      ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
+                      strerror(errno));
         freeaddrinfo (ai);
         CLOSE_SOCKET(s);
         return -1;
@@ -122,7 +120,7 @@ static socket_t bind_socket(ssh_bind sshbind, const char *hostname,
                       "Binding to %s:%d: %s",
                       hostname,
                       port,
-                      ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
+                      strerror(errno));
         freeaddrinfo (ai);
         CLOSE_SOCKET(s);
         return -1;
@@ -282,10 +280,9 @@ int ssh_bind_listen(ssh_bind sshbind) {
       }
 
       if (listen(fd, 10) < 0) {
-        char err_msg[SSH_ERRNO_MSG_MAX] = {0};
           ssh_set_error(sshbind, SSH_FATAL,
                   "Listening to socket %d: %s",
-                  fd, ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
+                  fd, strerror(errno));
           CLOSE_SOCKET(fd);
           ssh_key_free(sshbind->dsa);
           sshbind->dsa = NULL;
@@ -342,7 +339,7 @@ static int ssh_bind_poll_callback(ssh_poll_handle sshpoll,
 }
 
 /** @internal
- * @brief returns the current poll handle, or creates it
+ * @brief returns the current poll handle, or create it
  * @param sshbind the ssh_bind object
  * @returns a ssh_poll handle suitable for operation
  */
@@ -396,7 +393,6 @@ void ssh_bind_free(ssh_bind sshbind){
 
   /* options */
   SAFE_FREE(sshbind->banner);
-  SAFE_FREE(sshbind->moduli_file);
   SAFE_FREE(sshbind->bindaddr);
   SAFE_FREE(sshbind->config_dir);
   SAFE_FREE(sshbind->pubkey_accepted_key_types);
@@ -489,25 +485,8 @@ int ssh_bind_accept_fd(ssh_bind sshbind, ssh_session session, socket_t fd){
     }
 
     session->common.log_verbosity = sshbind->common.log_verbosity;
-
-    if (sshbind->banner != NULL) {
-        session->opts.custombanner = strdup(sshbind->banner);
-        if (session->opts.custombanner == NULL) {
-            ssh_set_error_oom(sshbind);
-            return SSH_ERROR;
-        }
-    }
-
-    if (sshbind->moduli_file != NULL) {
-        session->opts.moduli_file = strdup(sshbind->moduli_file);
-        if (session->opts.moduli_file == NULL) {
-            ssh_set_error_oom(sshbind);
-            return SSH_ERROR;
-        }
-    }
-
-    session->opts.rsa_min_size = sshbind->rsa_min_size;
-
+    if(sshbind->banner != NULL)
+    	session->opts.custombanner = strdup(sshbind->banner);
     ssh_socket_free(session->socket);
     session->socket = ssh_socket_new(session);
     if (session->socket == NULL) {
@@ -571,44 +550,34 @@ int ssh_bind_accept_fd(ssh_bind sshbind, ssh_session session, socket_t fd){
     return SSH_OK;
 }
 
-int ssh_bind_accept(ssh_bind sshbind, ssh_session session)
-{
-    socket_t fd = SSH_INVALID_SOCKET;
-    int rc;
+int ssh_bind_accept(ssh_bind sshbind, ssh_session session) {
+  socket_t fd = SSH_INVALID_SOCKET;
+  int rc;
+  if (sshbind->bindfd == SSH_INVALID_SOCKET) {
+    ssh_set_error(sshbind, SSH_FATAL,
+        "Can't accept new clients on a not bound socket.");
+    return SSH_ERROR;
+  }
 
-    if (sshbind->bindfd == SSH_INVALID_SOCKET) {
-        ssh_set_error(sshbind, SSH_FATAL,
-                      "Can't accept new clients on a not bound socket.");
-        return SSH_ERROR;
-    }
+  if (session == NULL){
+      ssh_set_error(sshbind, SSH_FATAL,"session is null");
+      return SSH_ERROR;
+  }
 
-    if (session == NULL) {
-        ssh_set_error(sshbind, SSH_FATAL, "session is null");
-        return SSH_ERROR;
-    }
+  fd = accept(sshbind->bindfd, NULL, NULL);
+  if (fd == SSH_INVALID_SOCKET) {
+    ssh_set_error(sshbind, SSH_FATAL,
+        "Accepting a new connection: %s",
+        strerror(errno));
+    return SSH_ERROR;
+  }
+  rc = ssh_bind_accept_fd(sshbind, session, fd);
 
-    fd = accept(sshbind->bindfd, NULL, NULL);
-    if (fd == SSH_INVALID_SOCKET) {
-        char err_msg[SSH_ERRNO_MSG_MAX] = {0};
-        if (errno == EINTR) {
-            ssh_set_error(sshbind, SSH_EINTR,
-                          "Accepting a new connection (child signal error): %s",
-                          ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
-        } else {
-            ssh_set_error(sshbind, SSH_FATAL,
-                          "Accepting a new connection: %s",
-                          ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
-        }
-        return SSH_ERROR;
-    }
-    rc = ssh_bind_accept_fd(sshbind, session, fd);
-
-    if (rc == SSH_ERROR) {
-        CLOSE_SOCKET(fd);
-        ssh_socket_free(session->socket);
-    }
-
-    return rc;
+  if(rc == SSH_ERROR){
+      CLOSE_SOCKET(fd);
+      ssh_socket_free(session->socket);
+  }
+  return rc;
 }
 
 
