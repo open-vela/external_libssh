@@ -44,8 +44,7 @@
  *
  * @return              1 on success, 0 on error.
  */
-static int ssh_gets(const char *prompt, char *buf, size_t len, int verify)
-{
+static int ssh_gets(const char *prompt, char *buf, size_t len, int verify) {
     char *tmp;
     char *ptr = NULL;
     int ok = 0;
@@ -122,8 +121,7 @@ int ssh_getpass(const char *prompt,
                 char *buf,
                 size_t len,
                 int echo,
-                int verify)
-{
+                int verify) {
     HANDLE h;
     DWORD mode = 0;
     int ok;
@@ -215,8 +213,7 @@ int ssh_getpass(const char *prompt,
                 char *buf,
                 size_t len,
                 int echo,
-                int verify)
-{
+                int verify) {
     struct termios attr;
     struct termios old_attr;
     int ok = 0;
@@ -258,11 +255,7 @@ int ssh_getpass(const char *prompt,
 
     /* disable nonblocking I/O */
     if (fd & O_NDELAY) {
-        ok = fcntl(0, F_SETFL, fd & ~O_NDELAY);
-        if (ok < 0) {
-            perror("fcntl");
-            return -1;
-        }
+        fcntl(0, F_SETFL, fd & ~O_NDELAY);
     }
 
     ok = ssh_gets(prompt, buf, len, verify);
@@ -274,11 +267,7 @@ int ssh_getpass(const char *prompt,
 
     /* close fd */
     if (fd & O_NDELAY) {
-        ok = fcntl(0, F_SETFL, fd);
-        if (ok < 0) {
-            perror("fcntl");
-            return -1;
-        }
+        fcntl(0, F_SETFL, fd);
     }
 
     if (!ok) {
