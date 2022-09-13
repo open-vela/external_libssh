@@ -111,15 +111,7 @@ struct ssh_crypto_struct {
 #endif /* WITH_GEX */
 #ifdef HAVE_ECDH
 #ifdef HAVE_OPENSSL_ECC
-/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
- * https://github.com/openssl/openssl/pull/16624
- * #if OPENSSL_VERSION_NUMBER < 0x30000000L
- */
-#if 1
     EC_KEY *ecdh_privkey;
-#else
-    EVP_PKEY *ecdh_privkey;
-#endif /* OPENSSL_VERSION_NUMBER */
 #elif defined HAVE_GCRYPT_ECC
     gcry_sexp_t ecdh_privkey;
 #elif defined HAVE_LIBMBEDCRYPTO
@@ -134,9 +126,8 @@ struct ssh_crypto_struct {
     ssh_curve25519_pubkey curve25519_server_pubkey;
 #endif
     ssh_string dh_server_signature; /* information used by dh_handshake. */
-    size_t session_id_len;
+    size_t digest_len; /* len of the two fields below */
     unsigned char *session_id;
-    size_t digest_len; /* len of the secret hash */
     unsigned char *secret_hash; /* Secret hash is same as session id until re-kex */
     unsigned char *encryptIV;
     unsigned char *decryptIV;
@@ -219,12 +210,7 @@ struct ssh_cipher_struct {
 const struct ssh_cipher_struct *ssh_get_chacha20poly1305_cipher(void);
 int sshkdf_derive_key(struct ssh_crypto_struct *crypto,
                       unsigned char *key, size_t key_len,
-                      uint8_t key_type, unsigned char *output,
+                      int key_type, unsigned char *output,
                       size_t requested_len);
-
-int secure_memcmp(const void *s1, const void *s2, size_t n);
-#ifdef HAVE_LIBCRYPTO
-ENGINE *pki_get_engine(void);
-#endif /* HAVE_LIBCRYPTO */
 
 #endif /* _CRYPTO_H_ */

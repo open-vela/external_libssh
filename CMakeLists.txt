@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.3.0)
 cmake_policy(SET CMP0048 NEW)
 
-# Specify search path for CMake modules to be loaded by include()
+# Specify search path for CMake modules to be loaded by include() 
 # and find_package()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules")
 
@@ -10,7 +10,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules")
 include(DefineCMakeDefaults)
 include(DefineCompilerFlags)
 
-project(libssh VERSION 0.10.90 LANGUAGES C CXX)
+project(libssh VERSION 0.9.5 LANGUAGES C)
 
 # global needed variable
 set(APPLICATION_NAME ${PROJECT_NAME})
@@ -22,7 +22,7 @@ set(APPLICATION_NAME ${PROJECT_NAME})
 #     Increment AGE. Set REVISION to 0
 #   If the source code was changed, but there were no interface changes:
 #     Increment REVISION.
-set(LIBRARY_VERSION "4.9.0")
+set(LIBRARY_VERSION "4.8.6")
 set(LIBRARY_SOVERSION "4")
 
 # where to look first for cmake modules, before ${CMAKE_ROOT}/Modules/ is checked
@@ -58,14 +58,8 @@ elseif(WITH_MBEDTLS)
       message(FATAL_ERROR "Could not find mbedTLS")
     endif (NOT MBEDTLS_FOUND)
 else (WITH_GCRYPT)
-  find_package(OpenSSL 1.0.1)
-  if (OPENSSL_FOUND)
-    # On CMake < 3.16, OPENSSL_CRYPTO_LIBRARIES is usually a synonym for OPENSSL_CRYPTO_LIBRARY, but is not defined
-    # when building on Windows outside of Cygwin. We provide the synonym here, if FindOpenSSL didn't define it already.
-    if (NOT DEFINED OPENSSL_CRYPTO_LIBRARIES)
-      set(OPENSSL_CRYPTO_LIBRARIES ${OPENSSL_CRYPTO_LIBRARY})
-    endif (NOT DEFINED OPENSSL_CRYPTO_LIBRARIES)
-  else (OPENSSL_FOUND)
+  find_package(OpenSSL)
+  if (NOT OPENSSL_FOUND)
     find_package(GCrypt)
     if (NOT GCRYPT_FOUND)
       find_package(MbedTLS)
@@ -73,7 +67,7 @@ else (WITH_GCRYPT)
         message(FATAL_ERROR "Could not find OpenSSL, GCrypt or mbedTLS")
       endif (NOT MBEDTLS_FOUND)
     endif (NOT GCRYPT_FOUND)
-  endif (OPENSSL_FOUND)
+  endif (NOT OPENSSL_FOUND)
 endif(WITH_GCRYPT)
 
 if (UNIT_TESTING)
@@ -89,13 +83,6 @@ if (WITH_GSSAPI)
     find_package(GSSAPI)
 endif (WITH_GSSAPI)
 
-if (WITH_PKCS11_URI)
-    find_package(softhsm)
-    if (NOT SOFTHSM_FOUND)
-        message(SEND_ERROR "Could not find softhsm module!")
-     endif (NOT SOFTHSM_FOUND)
-endif (WITH_PKCS11_URI)
-
 if (WITH_NACL)
     find_package(NaCl)
     if (NOT NACL_FOUND)
@@ -103,9 +90,9 @@ if (WITH_NACL)
     endif (NOT NACL_FOUND)
 endif (WITH_NACL)
 
-if (BSD OR SOLARIS OR OSX OR CYGWIN)
+if (BSD OR SOLARIS OR OSX)
     find_package(Argp)
-endif (BSD OR SOLARIS OR OSX OR CYGWIN)
+endif (BSD OR SOLARIS OR OSX)
 
 # Disable symbol versioning in non UNIX platforms
 if (UNIX)
@@ -124,7 +111,7 @@ add_subdirectory(include)
 add_subdirectory(src)
 
 # pkg-config file
-if (UNIX OR MINGW)
+if (UNIX)
 configure_file(libssh.pc.cmake ${CMAKE_CURRENT_BINARY_DIR}/libssh.pc)
 install(
   FILES
@@ -134,7 +121,7 @@ install(
   COMPONENT
     pkgconfig
 )
-endif (UNIX OR MINGW)
+endif (UNIX)
 
 # CMake config files
 include(CMakePackageConfigHelpers)
@@ -216,31 +203,16 @@ if (WITH_SYMBOL_VERSIONING AND ABIMAP_FOUND)
     endif(UPDATE_ABI)
 endif (WITH_SYMBOL_VERSIONING AND ABIMAP_FOUND)
 
-# Coverage
-if (CMAKE_BUILD_TYPE STREQUAL "Coverage")
-    include(CodeCoverage)
-    setup_target_for_coverage_lcov(
-        NAME "coverage"
-        EXECUTABLE make test
-        DEPENDENCIES ssh tests)
-    set(GCOVR_ADDITIONAL_ARGS --xml-pretty --exclude-unreachable-branches --print-summary)
-    setup_target_for_coverage_gcovr_xml(
-        NAME "coverage_xml"
-        EXECUTABLE make test
-        DEPENDENCIES ssh tests)
-endif (CMAKE_BUILD_TYPE STREQUAL "Coverage")
-
-add_custom_target(dist COMMAND ${CMAKE_MAKE_PROGRAM} package_source DEPENDS ${_SYMBOL_TARGET} VERBATIM)
+add_custom_target(dist COMMAND ${CMAKE_MAKE_PROGRAM} package_source DEPENDS ${_SYMBOL_TARGET})
 
 # Link compile database for clangd
-execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
+execute_process(COMMAND cmake -E create_symlink
                 "${CMAKE_BINARY_DIR}/compile_commands.json"
                 "${CMAKE_SOURCE_DIR}/compile_commands.json")
 
 message(STATUS "********************************************")
 message(STATUS "********** ${PROJECT_NAME} build options : **********")
 
-message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "zlib support: ${WITH_ZLIB}")
 message(STATUS "libgcrypt support: ${WITH_GCRYPT}")
 message(STATUS "libmbedTLS support: ${WITH_MBEDTLS}")
@@ -249,14 +221,11 @@ message(STATUS "SFTP support: ${WITH_SFTP}")
 message(STATUS "Server support : ${WITH_SERVER}")
 message(STATUS "GSSAPI support : ${WITH_GSSAPI}")
 message(STATUS "GEX support : ${WITH_GEX}")
-message(STATUS "Support insecure none cipher and MAC : ${WITH_INSECURE_NONE}")
 message(STATUS "Pcap debugging support : ${WITH_PCAP}")
 message(STATUS "Build shared library: ${BUILD_SHARED_LIBS}")
 message(STATUS "Unit testing: ${UNIT_TESTING}")
 message(STATUS "Client code testing: ${CLIENT_TESTING}")
 message(STATUS "Blowfish cipher support: ${WITH_BLOWFISH_CIPHER}")
-message(STATUS "PKCS #11 URI support: ${WITH_PKCS11_URI}")
-message(STATUS "DSA support: ${WITH_DSA}")
 set(_SERVER_TESTING OFF)
 if (WITH_SERVER)
     set(_SERVER_TESTING ${SERVER_TESTING})
