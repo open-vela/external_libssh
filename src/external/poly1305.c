@@ -104,7 +104,7 @@ poly1305_donna_atmost15bytes:
     if (!inlen) goto poly1305_donna_finish;
 
     for (j = 0; j < inlen; j++) mp[j] = m[j];
-    mp[j++] = 1;
+    if (j < 16) mp[j++] = 1;
     for (; j < 16; j++)    mp[j] = 0;
     inlen = 0;
 
