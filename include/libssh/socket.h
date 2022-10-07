@@ -36,7 +36,7 @@ void ssh_socket_free(ssh_socket s);
 void ssh_socket_set_fd(ssh_socket s, socket_t fd);
 socket_t ssh_socket_get_fd(ssh_socket s);
 int ssh_socket_unix(ssh_socket s, const char *path);
-void ssh_execute_command(const char *command, socket_t in, socket_t out);
+pid_t ssh_execute_command(const char *command, socket_t in, socket_t out);
 #ifndef _WIN32
 int ssh_socket_connect_proxycommand(ssh_socket s, const char *command);
 #endif

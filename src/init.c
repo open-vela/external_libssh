@@ -136,8 +136,13 @@ void libssh_constructor(void)
  * @brief Initialize global cryptographic data structures.
  *
  * Since version 0.8.0, when libssh is dynamically linked, it is not necessary
+<<<<<<< HEAD
+ * to call this function on systems which are fully supported with regards to
+ * threading (that is, system with pthreads available).
+=======
  * to call this function on systems that fully support threading (that is,
  * systems with pthreads available).
+>>>>>>> 915df080588ce815c80da804780438ce9b2ac390
  *
  * If libssh is statically linked, it is necessary to explicitly call ssh_init()
  * before calling any other provided API, and it is necessary to explicitly call
@@ -221,6 +226,13 @@ void libssh_destructor(void)
  * to call this function, since it is automatically called when the library is
  * unloaded.
  *
+<<<<<<< HEAD
+ * Since version 0.8.0, when libssh is dynamically linked, it is not necessary
+ * to call this function, since it is automatically called when the library is
+ * unloaded.
+ *
+=======
+>>>>>>> 915df080588ce815c80da804780438ce9b2ac390
  * If libssh is statically linked, it is necessary to explicitly call ssh_init()
  * before calling any other provided API, and it is necessary to explicitly call
  * ssh_finalize() to free the allocated resources before exiting.

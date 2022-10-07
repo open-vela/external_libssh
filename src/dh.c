@@ -719,7 +719,11 @@ static char *ssh_get_b64_unpadded(const unsigned char *hash, size_t len)
  * @brief Get a hash as a human-readable hex- or base64-string.
  *
  * This gets an allocated fingerprint hash.  If it is a SHA sum, it will
+<<<<<<< HEAD
+ * return an unpadded base64 strings.  If it is a MD5 sum, it will return hex
+=======
  * return an unpadded base64 string.  If it is a MD5 sum, it will return a hex
+>>>>>>> 915df080588ce815c80da804780438ce9b2ac390
  * string. Either way, the output is prepended by the hash-type.
  *
  * @warning Do NOT use MD5 or SHA1! Those hash functions are being deprecated.
