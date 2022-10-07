@@ -59,7 +59,7 @@ static int session_teardown(void **state)
     return 0;
 }
 
-#ifdef NC_EXECUTABLE
+#ifdef NCAT_EXECUTABLE
 static void torture_options_set_proxycommand(void **state)
 {
     struct torture_state *s = *state;
@@ -71,13 +71,18 @@ static void torture_options_set_proxycommand(void **state)
     int rc;
     socket_t fd;
 
-    rc = stat(NC_EXECUTABLE, &sb);
+    rc = stat(NCAT_EXECUTABLE, &sb);
     if (rc != 0 || (sb.st_mode & S_IXOTH) == 0) {
-        SSH_LOG(SSH_LOG_WARNING, "Could not find " NC_EXECUTABLE ": Skipping the test");
+        SSH_LOG(SSH_LOG_WARNING,
+                "Could not find " NCAT_EXECUTABLE ": Skipping the test");
         skip();
     }
 
-    rc = snprintf(command, sizeof(command), NC_EXECUTABLE " %s %d", address, port);
+    rc = snprintf(command,
+                  sizeof(command),
+                  NCAT_EXECUTABLE " %s %d",
+                  address,
+                  port);
     assert_true((size_t)rc < sizeof(command));
 
     rc = ssh_options_set(session, SSH_OPTIONS_PROXYCOMMAND, command);
@@ -90,7 +95,7 @@ static void torture_options_set_proxycommand(void **state)
     assert_int_equal(rc & O_RDWR, O_RDWR);
 }
 
-#else /* NC_EXECUTABLE */
+#else /* NCAT_EXECUTABLE */
 
 static void torture_options_set_proxycommand(void **state)
 {
@@ -98,7 +103,7 @@ static void torture_options_set_proxycommand(void **state)
     skip();
 }
 
-#endif /* NC_EXECUTABLE */
+#endif /* NCAT_EXECUTABLE */
 
 static void torture_options_set_proxycommand_notexist(void **state) {
     struct torture_state *s = *state;
@@ -122,7 +127,7 @@ static void torture_options_set_proxycommand_ssh(void **state)
     socket_t fd;
 
     rc = snprintf(command, sizeof(command),
-                  "ssh -oStrictHostKeyChecking=no -W [%%h]:%%p alice@%s",
+                  "ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -W [%%h]:%%p alice@%s",
                   address);
     assert_true((size_t)rc < sizeof(command));
 
@@ -147,7 +152,7 @@ static void torture_options_set_proxycommand_ssh_stderr(void **state)
 
     /* The -vvv switches produce the desired output on the standard error */
     rc = snprintf(command, sizeof(command),
-                  "ssh -vvv -oStrictHostKeyChecking=no -W [%%h]:%%p alice@%s",
+                  "ssh -vvv -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -W [%%h]:%%p alice@%s",
                   address);
     assert_true((size_t)rc < sizeof(command));
 

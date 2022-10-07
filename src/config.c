@@ -32,6 +32,14 @@
 #endif
 #include <stdbool.h>
 #include <limits.h>
+#ifndef _WIN32
+# include <sys/types.h>
+# include <sys/stat.h>
+# include <fcntl.h>
+# include <errno.h>
+# include <signal.h>
+# include <sys/wait.h>
+#endif
 
 #include "libssh/config_parser.h"
 #include "libssh/config.h"
@@ -60,7 +68,6 @@ static struct ssh_config_keyword_table_s ssh_config_keyword_table[] = {
   { "macs", SOC_MACS },
   { "compression", SOC_COMPRESSION },
   { "connecttimeout", SOC_TIMEOUT },
-  { "protocol", SOC_PROTOCOL },
   { "stricthostkeychecking", SOC_STRICTHOSTKEYCHECK },
   { "userknownhostsfile", SOC_KNOWNHOSTS },
   { "proxycommand", SOC_PROXYCOMMAND },
@@ -73,7 +80,6 @@ static struct ssh_config_keyword_table_s ssh_config_keyword_table[] = {
   { "loglevel", SOC_LOGLEVEL},
   { "hostkeyalgorithms", SOC_HOSTKEYALGORITHMS},
   { "kexalgorithms", SOC_KEXALGORITHMS},
-  { "mac", SOC_UNSUPPORTED}, /* SSHv1 */
   { "gssapiauthentication", SOC_GSSAPIAUTHENTICATION},
   { "kbdinteractiveauthentication", SOC_KBDINTERACTIVEAUTHENTICATION},
   { "passwordauthentication", SOC_PASSWORDAUTHENTICATION},
@@ -87,23 +93,18 @@ static struct ssh_config_keyword_table_s ssh_config_keyword_table[] = {
   { "canonicalizemaxdots", SOC_UNSUPPORTED},
   { "canonicalizepermittedcnames", SOC_UNSUPPORTED},
   { "certificatefile", SOC_UNSUPPORTED},
-  { "challengeresponseauthentication", SOC_UNSUPPORTED},
+  { "kbdinteractiveauthentication", SOC_UNSUPPORTED},
   { "checkhostip", SOC_UNSUPPORTED},
-  { "cipher", SOC_UNSUPPORTED}, /* SSHv1 */
-  { "compressionlevel", SOC_UNSUPPORTED}, /* SSHv1 */
   { "connectionattempts", SOC_UNSUPPORTED},
   { "enablesshkeysign", SOC_UNSUPPORTED},
   { "fingerprinthash", SOC_UNSUPPORTED},
   { "forwardagent", SOC_UNSUPPORTED},
-  { "gssapikeyexchange", SOC_UNSUPPORTED},
-  { "gssapirenewalforcesrekey", SOC_UNSUPPORTED},
-  { "gssapitrustdns", SOC_UNSUPPORTED},
   { "hashknownhosts", SOC_UNSUPPORTED},
   { "hostbasedauthentication", SOC_UNSUPPORTED},
-  { "hostbasedkeytypes", SOC_UNSUPPORTED},
+  { "hostbasedacceptedalgorithms", SOC_UNSUPPORTED},
   { "hostkeyalias", SOC_UNSUPPORTED},
-  { "identitiesonly", SOC_UNSUPPORTED},
-  { "identityagent", SOC_UNSUPPORTED},
+  { "identitiesonly", SOC_IDENTITIESONLY},
+  { "identityagent", SOC_IDENTITYAGENT},
   { "ipqos", SOC_UNSUPPORTED},
   { "kbdinteractivedevices", SOC_UNSUPPORTED},
   { "nohostauthenticationforlocalhost", SOC_UNSUPPORTED},
@@ -112,12 +113,10 @@ static struct ssh_config_keyword_table_s ssh_config_keyword_table[] = {
   { "preferredauthentications", SOC_UNSUPPORTED},
   { "proxyjump", SOC_PROXYJUMP},
   { "proxyusefdpass", SOC_UNSUPPORTED},
-  { "pubkeyacceptedtypes", SOC_PUBKEYACCEPTEDTYPES},
+  { "pubkeyacceptedalgorithms", SOC_PUBKEYACCEPTEDKEYTYPES},
   { "rekeylimit", SOC_REKEYLIMIT},
   { "remotecommand", SOC_UNSUPPORTED},
   { "revokedhostkeys", SOC_UNSUPPORTED},
-  { "rhostsrsaauthentication", SOC_UNSUPPORTED},
-  { "rsaauthentication", SOC_UNSUPPORTED}, /* SSHv1 */
   { "serveralivecountmax", SOC_UNSUPPORTED},
   { "serveraliveinterval", SOC_UNSUPPORTED},
   { "streamlocalbindmask", SOC_UNSUPPORTED},
@@ -125,7 +124,6 @@ static struct ssh_config_keyword_table_s ssh_config_keyword_table[] = {
   { "syslogfacility", SOC_UNSUPPORTED},
   { "tcpkeepalive", SOC_UNSUPPORTED},
   { "updatehostkeys", SOC_UNSUPPORTED},
-  { "useprivilegedport", SOC_UNSUPPORTED},
   { "verifyhostkeydns", SOC_UNSUPPORTED},
   { "visualhostkey", SOC_UNSUPPORTED},
   { "clearallforwardings", SOC_NA},
@@ -149,7 +147,7 @@ static struct ssh_config_keyword_table_s ssh_config_keyword_table[] = {
   { "tunnel", SOC_NA},
   { "tunneldevice", SOC_NA},
   { "xauthlocation", SOC_NA},
-  { "pubkeyacceptedkeytypes", SOC_PUBKEYACCEPTEDTYPES},
+  { "pubkeyacceptedkeytypes", SOC_PUBKEYACCEPTEDKEYTYPES},
   { NULL, SOC_UNKNOWN }
 };
 
@@ -183,7 +181,7 @@ static struct ssh_config_match_keyword_table_s ssh_config_match_keyword_table[] 
 };
 
 static int ssh_config_parse_line(ssh_session session, const char *line,
-    unsigned int count, int *parsing);
+    unsigned int count, int *parsing, unsigned int depth, bool global);
 
 static enum ssh_config_opcode_e ssh_config_get_opcode(char *keyword) {
   int i;
@@ -197,15 +195,25 @@ static enum ssh_config_opcode_e ssh_config_get_opcode(char *keyword) {
   return SOC_UNKNOWN;
 }
 
+#define LIBSSH_CONF_MAX_DEPTH 16
 static void
 local_parse_file(ssh_session session,
                  const char *filename,
-                 int *parsing)
+                 int *parsing,
+                 unsigned int depth,
+                 bool global)
 {
     FILE *f;
     char line[MAX_LINE_SIZE] = {0};
     unsigned int count = 0;
     int rv;
+
+    if (depth > LIBSSH_CONF_MAX_DEPTH) {
+        ssh_set_error(session, SSH_FATAL,
+                      "ERROR - Too many levels of configuration includes "
+                      "when processing file '%s'", filename);
+        return;
+    }
 
     f = fopen(filename, "r");
     if (f == NULL) {
@@ -217,7 +225,7 @@ local_parse_file(ssh_session session,
     SSH_LOG(SSH_LOG_PACKET, "Reading additional configuration data from %s", filename);
     while (fgets(line, sizeof(line), f)) {
         count++;
-        rv = ssh_config_parse_line(session, line, count, parsing);
+        rv = ssh_config_parse_line(session, line, count, parsing, depth, global);
         if (rv < 0) {
             fclose(f);
             return;
@@ -231,7 +239,9 @@ local_parse_file(ssh_session session,
 #if defined(HAVE_GLOB) && defined(HAVE_GLOB_GL_FLAGS_MEMBER)
 static void local_parse_glob(ssh_session session,
                              const char *fileglob,
-                             int *parsing)
+                             int *parsing,
+                             unsigned int depth,
+                             bool global)
 {
     glob_t globbuf = {
         .gl_flags = 0,
@@ -251,7 +261,7 @@ static void local_parse_glob(ssh_session session,
     }
 
     for (i = 0; i < globbuf.gl_pathc; i++) {
-        local_parse_file(session, globbuf.gl_pathv[i], parsing);
+        local_parse_file(session, globbuf.gl_pathv[i], parsing, depth, global);
     }
 
     globfree(&globbuf);
@@ -288,6 +298,134 @@ ssh_config_match(char *value, const char *pattern, bool negate)
             negate == true ? " (negated)" : "", ok);
     return result;
 }
+
+#ifdef _WIN32
+static int
+ssh_match_exec(ssh_session session, const char *command, bool negate)
+{
+    (void) session;
+    (void) command;
+    (void) negate;
+
+    SSH_LOG(SSH_LOG_TRACE, "Unsupported 'exec' command on Windows '%s'",
+            command);
+    return 0;
+}
+#else /* _WIN32 */
+
+static int
+ssh_exec_shell(char *cmd)
+{
+    char *shell = NULL;
+    pid_t pid;
+    int status, devnull, rc;
+    char err_msg[SSH_ERRNO_MSG_MAX] = {0};
+
+    shell = getenv("SHELL");
+    if (shell == NULL || shell[0] == '\0') {
+        shell = (char *)"/bin/sh";
+    }
+
+    rc = access(shell, X_OK);
+    if (rc != 0) {
+        SSH_LOG(SSH_LOG_WARN, "The shell '%s' is not executable", shell);
+        return -1;
+    }
+
+    /* Need this to redirect subprocess stdin/out */
+    devnull = open("/dev/null", O_RDWR);
+    if (devnull == -1) {
+        SSH_LOG(SSH_LOG_WARN, "Failed to open(/dev/null): %s",
+                ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
+        return -1;
+    }
+
+    SSH_LOG(SSH_LOG_DEBUG, "Running command '%s'", cmd);
+    pid = fork();
+    if (pid == 0) { /* Child */
+        char *argv[4];
+
+        /* Redirect child stdin and stdout. Leave stderr */
+        rc = dup2(devnull, STDIN_FILENO);
+        if (rc == -1) {
+            SSH_LOG(SSH_LOG_WARN, "dup2: %s",
+                    ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
+            exit(1);
+        }
+        rc = dup2(devnull, STDOUT_FILENO);
+        if (rc == -1) {
+            SSH_LOG(SSH_LOG_WARN, "dup2: %s",
+                    ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
+	    exit(1);
+        }
+        if (devnull > STDERR_FILENO) {
+            close(devnull);
+        }
+
+        argv[0] = shell;
+        argv[1] = (char *) "-c";
+        argv[2] = strdup(cmd);
+        argv[3] = NULL;
+
+        rc = execv(argv[0], argv);
+        if (rc == -1) {
+            SSH_LOG(SSH_LOG_WARN, "Failed to execute command '%s': %s", cmd,
+                    ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
+            /* Die with signal to make this error apparent to parent. */
+            signal(SIGTERM, SIG_DFL);
+            kill(getpid(), SIGTERM);
+            _exit(1);
+        }
+    }
+
+    /* Parent */
+    close(devnull);
+    if (pid == -1) { /* Error */
+        SSH_LOG(SSH_LOG_WARN, "Failed to fork child: %s",
+                ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
+        return -1;
+
+    }
+
+    while (waitpid(pid, &status, 0) == -1) {
+        if (errno != EINTR) {
+            SSH_LOG(SSH_LOG_WARN, "waitpid failed: %s",
+                    ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
+            return -1;
+        }
+    }
+    if (!WIFEXITED(status)) {
+        SSH_LOG(SSH_LOG_WARN, "Command %s exited abnormally", cmd);
+        return -1;
+    }
+    SSH_LOG(SSH_LOG_TRACE, "Command '%s' returned %d", cmd, WEXITSTATUS(status));
+    return WEXITSTATUS(status);
+}
+
+static int
+ssh_match_exec(ssh_session session, const char *command, bool negate)
+{
+    int rv, result = 0;
+    char *cmd = NULL;
+
+    /* TODO There should be more supported expansions */
+    cmd = ssh_path_expand_escape(session, command);
+    if (cmd == NULL) {
+        return 0;
+    }
+    rv = ssh_exec_shell(cmd);
+    if (rv > 0 && negate == true) {
+        result = 1;
+    } else if (rv == 0 && negate == false) {
+        result = 1;
+    }
+    SSH_LOG(SSH_LOG_TRACE, "%s 'exec' command '%s'%s (rv=%d)",
+            result == 1 ? "Matched" : "Not matched", cmd,
+            negate == true ? " (negated)" : "", rv);
+    free(cmd);
+    return result;
+}
+#endif  /* _WIN32 */
 
 /* @brief: Parse the ProxyJump configuration line and if parsing,
  * stores the result in the configuration option
@@ -353,7 +491,7 @@ ssh_config_parse_proxy_jump(ssh_session session, const char *s, bool do_parsing)
     if (hostname != NULL && do_parsing) {
         char com[512] = {0};
 
-        rv = snprintf(com, sizeof(com), "ssh%s%s%s%s%s%s -W [%%h]:%%p %s",
+        rv = snprintf(com, sizeof(com), "ssh%s%s%s%s%s%s -W '[%%h]:%%p' %s",
                       username ? " -l " : "",
                       username ? username : "",
                       port ? " -p " : "",
@@ -362,7 +500,7 @@ ssh_config_parse_proxy_jump(ssh_session session, const char *s, bool do_parsing)
                       next ? next : "",
                       hostname);
         if (rv < 0 || rv >= (int)sizeof(com)) {
-            SSH_LOG(SSH_LOG_WARN, "Too long ProxyJump configuration line");
+            SSH_LOG(SSH_LOG_TRACE, "Too long ProxyJump configuration line");
             rv = SSH_ERROR;
             goto out;
         }
@@ -379,11 +517,68 @@ out:
     return rv;
 }
 
+static char *
+ssh_config_make_absolute(ssh_session session,
+                         const char *path,
+                         bool global)
+{
+    size_t outlen = 0;
+    char *out = NULL;
+    int rv;
+
+    /* Looks like absolute path */
+    if (path[0] == '/') {
+        return strdup(path);
+    }
+
+    /* relative path */
+    if (global) {
+        /* Parsing global config */
+        outlen = strlen(path) + strlen("/etc/ssh/") + 1;
+        out = malloc(outlen);
+        if (out == NULL) {
+            ssh_set_error_oom(session);
+            return NULL;
+        }
+        rv = snprintf(out, outlen, "/etc/ssh/%s", path);
+        if (rv < 1) {
+            free(out);
+            return NULL;
+        }
+        return out;
+    }
+
+    /* paths starting with tilde are already absolute */
+    if (path[0] == '~') {
+        return ssh_path_expand_tilde(path);
+    }
+
+    /* Parsing user config relative to home directory (generally ~/.ssh) */
+    if (session->opts.sshdir == NULL) {
+        ssh_set_error_invalid(session);
+        return NULL;
+    }
+    outlen = strlen(path) + strlen(session->opts.sshdir) + 1 + 1;
+    out = malloc(outlen);
+    if (out == NULL) {
+        ssh_set_error_oom(session);
+        return NULL;
+    }
+    rv = snprintf(out, outlen, "%s/%s", session->opts.sshdir, path);
+    if (rv < 1) {
+        free(out);
+        return NULL;
+    }
+    return out;
+}
+
 static int
 ssh_config_parse_line(ssh_session session,
                       const char *line,
                       unsigned int count,
-                      int *parsing)
+                      int *parsing,
+                      unsigned int depth,
+                      bool global)
 {
   enum ssh_config_opcode_e opcode;
   const char *p = NULL, *p2 = NULL;
@@ -427,7 +622,9 @@ ssh_config_parse_line(ssh_session session,
       opcode != SOC_HOST &&
       opcode != SOC_MATCH &&
       opcode != SOC_INCLUDE &&
-      opcode > SOC_UNSUPPORTED) { /* Ignore all unknown types here */
+      opcode != SOC_IDENTITY &&
+      opcode > SOC_UNSUPPORTED &&
+      opcode < SOC_MAX) { /* Ignore all unknown types here */
       /* Skip all the options that were already applied */
       if (seen[opcode] != 0) {
           SAFE_FREE(x);
@@ -441,11 +638,19 @@ ssh_config_parse_line(ssh_session session,
 
       p = ssh_config_get_str_tok(&s, NULL);
       if (p && *parsing) {
+        char *path = ssh_config_make_absolute(session, p, global);
+        if (path == NULL) {
+          SSH_LOG(SSH_LOG_WARN, "line %d: Failed to allocate memory "
+                  "for the include path expansion", count);
+          SAFE_FREE(x);
+          return -1;
+        }
 #if defined(HAVE_GLOB) && defined(HAVE_GLOB_GL_FLAGS_MEMBER)
-        local_parse_glob(session, p, parsing);
+        local_parse_glob(session, path, parsing, depth + 1, global);
 #else
-        local_parse_file(session, p, parsing);
+        local_parse_file(session, path, parsing, depth + 1, global);
 #endif /* HAVE_GLOB */
+        free(path);
       }
       break;
 
@@ -463,7 +668,7 @@ ssh_config_parse_line(ssh_session session,
                 break;
             }
             args++;
-            SSH_LOG(SSH_LOG_TRACE, "line %d: Processing Match keyword '%s'",
+            SSH_LOG(SSH_LOG_DEBUG, "line %d: Processing Match keyword '%s'",
                     count, p);
 
             /* If the option is prefixed with ! the result should be negated */
@@ -495,7 +700,7 @@ ssh_config_parse_line(ssh_session session,
 
             case MATCH_FINAL:
             case MATCH_CANONICAL:
-                SSH_LOG(SSH_LOG_WARN,
+                SSH_LOG(SSH_LOG_DEBUG,
                         "line %d: Unsupported Match keyword '%s', skipping",
                         count,
                         p);
@@ -504,20 +709,22 @@ ssh_config_parse_line(ssh_session session,
                 break;
 
             case MATCH_EXEC:
-                /* Skip to the end of line as unsupported */
-                p = ssh_config_get_cmd(&s);
+                /* Skip one argument (including in quotes) */
+                p = ssh_config_get_token(&s);
                 if (p == NULL || p[0] == '\0') {
-                    SSH_LOG(SSH_LOG_WARN, "line %d: Match keyword "
+                    SSH_LOG(SSH_LOG_TRACE, "line %d: Match keyword "
                             "'%s' requires argument", count, p2);
                     SAFE_FREE(x);
                     return -1;
                 }
+                if (result != 1) {
+                    SSH_LOG(SSH_LOG_DEBUG, "line %d: Skipped match exec "
+                            "'%s' as previous conditions already failed.",
+                            count, p2);
+                    continue;
+                }
+                result &= ssh_match_exec(session, p, negate);
                 args++;
-                SSH_LOG(SSH_LOG_WARN,
-                        "line %d: Unsupported Match keyword '%s', ignoring",
-                        count,
-                        p2);
-                result = 0;
                 break;
 
             case MATCH_LOCALUSER:
@@ -532,7 +739,7 @@ ssh_config_parse_line(ssh_session session,
                 }
                 localuser = ssh_get_local_username();
                 if (localuser == NULL) {
-                    SSH_LOG(SSH_LOG_WARN, "line %d: Can not get local username "
+                    SSH_LOG(SSH_LOG_TRACE, "line %d: Can not get local username "
                             "for conditional matching.", count);
                     SAFE_FREE(x);
                     return -1;
@@ -546,13 +753,13 @@ ssh_config_parse_line(ssh_session session,
                 /* Skip one argument */
                 p = ssh_config_get_str_tok(&s, NULL);
                 if (p == NULL || p[0] == '\0') {
-                    SSH_LOG(SSH_LOG_WARN, "line %d: Match keyword "
+                    SSH_LOG(SSH_LOG_TRACE, "line %d: Match keyword "
                             "'%s' requires argument", count, p2);
                     SAFE_FREE(x);
                     return -1;
                 }
                 args++;
-                SSH_LOG(SSH_LOG_WARN,
+                SSH_LOG(SSH_LOG_TRACE,
                         "line %d: Unsupported Match keyword '%s', ignoring",
                         count,
                         p2);
@@ -682,34 +889,6 @@ ssh_config_parse_line(ssh_session session,
         }
       }
       break;
-    case SOC_PROTOCOL:
-      p = ssh_config_get_str_tok(&s, NULL);
-      if (p && *parsing) {
-        char *a, *b;
-        b = strdup(p);
-        if (b == NULL) {
-          SAFE_FREE(x);
-          ssh_set_error_oom(session);
-          return -1;
-        }
-        i = 0;
-        ssh_options_set(session, SSH_OPTIONS_SSH2, &i);
-
-        for (a = strtok(b, ","); a; a = strtok(NULL, ",")) {
-          switch (atoi(a)) {
-            case 1:
-              break;
-            case 2:
-              i = 1;
-              ssh_options_set(session, SSH_OPTIONS_SSH2, &i);
-              break;
-            default:
-              break;
-          }
-        }
-        SAFE_FREE(b);
-      }
-      break;
     case SOC_TIMEOUT:
       l = ssh_config_get_long(&s, -1);
       if (l >= 0 && *parsing) {
@@ -787,10 +966,10 @@ ssh_config_parse_line(ssh_session session,
             if (strcasecmp(p, "quiet") == 0) {
                 value = SSH_LOG_NONE;
             } else if (strcasecmp(p, "fatal") == 0 ||
-                    strcasecmp(p, "error")== 0 ||
-                    strcasecmp(p, "info") == 0) {
+                    strcasecmp(p, "error")== 0) {
                 value = SSH_LOG_WARN;
-            } else if (strcasecmp(p, "verbose") == 0) {
+            } else if (strcasecmp(p, "verbose") == 0 ||
+                    strcasecmp(p, "info") == 0) {
                 value = SSH_LOG_INFO;
             } else if (strcasecmp(p, "DEBUG") == 0 ||
                     strcasecmp(p, "DEBUG1") == 0) {
@@ -810,7 +989,7 @@ ssh_config_parse_line(ssh_session session,
             ssh_options_set(session, SSH_OPTIONS_HOSTKEYS, p);
         }
         break;
-    case SOC_PUBKEYACCEPTEDTYPES:
+    case SOC_PUBKEYACCEPTEDKEYTYPES:
         p = ssh_config_get_str_tok(&s, NULL);
         if (p && *parsing) {
             ssh_options_set(session, SSH_OPTIONS_PUBLICKEY_ACCEPTED_TYPES, p);
@@ -828,20 +1007,20 @@ ssh_config_parse_line(ssh_session session,
         if (p == NULL) {
             break;
         } else if (strcmp(p, "default") == 0) {
-            /* Default rekey limits enforced automaticaly */
+            /* Default rekey limits enforced automatically */
             ll = 0;
         } else {
             char *endp = NULL;
             ll = strtoll(p, &endp, 10);
             if (p == endp || ll < 0) {
                 /* No number or negative */
-                SSH_LOG(SSH_LOG_WARN, "Invalid argument to rekey limit");
+                SSH_LOG(SSH_LOG_TRACE, "Invalid argument to rekey limit");
                 break;
             }
             switch (*endp) {
             case 'G':
                 if (ll > LLONG_MAX / 1024) {
-                    SSH_LOG(SSH_LOG_WARN, "Possible overflow of rekey limit");
+                    SSH_LOG(SSH_LOG_TRACE, "Possible overflow of rekey limit");
                     ll = -1;
                     break;
                 }
@@ -849,7 +1028,7 @@ ssh_config_parse_line(ssh_session session,
                 FALL_THROUGH;
             case 'M':
                 if (ll > LLONG_MAX / 1024) {
-                    SSH_LOG(SSH_LOG_WARN, "Possible overflow of rekey limit");
+                    SSH_LOG(SSH_LOG_TRACE, "Possible overflow of rekey limit");
                     ll = -1;
                     break;
                 }
@@ -857,7 +1036,7 @@ ssh_config_parse_line(ssh_session session,
                 FALL_THROUGH;
             case 'K':
                 if (ll > LLONG_MAX / 1024) {
-                    SSH_LOG(SSH_LOG_WARN, "Possible overflow of rekey limit");
+                    SSH_LOG(SSH_LOG_TRACE, "Possible overflow of rekey limit");
                     ll = -1;
                     break;
                 }
@@ -873,7 +1052,7 @@ ssh_config_parse_line(ssh_session session,
                 break;
             }
             if (*endp != ' ' && *endp != '\0') {
-                SSH_LOG(SSH_LOG_WARN,
+                SSH_LOG(SSH_LOG_TRACE,
                         "Invalid trailing characters after the rekey limit: %s",
                         endp);
                 break;
@@ -894,14 +1073,14 @@ ssh_config_parse_line(ssh_session session,
             ll = strtoll(p, &endp, 10);
             if (p == endp || ll < 0) {
                 /* No number or negative */
-                SSH_LOG(SSH_LOG_WARN, "Invalid argument to rekey limit");
+                SSH_LOG(SSH_LOG_TRACE, "Invalid argument to rekey limit");
                 break;
             }
             switch (*endp) {
             case 'w':
             case 'W':
                 if (ll > LLONG_MAX / 7) {
-                    SSH_LOG(SSH_LOG_WARN, "Possible overflow of rekey limit");
+                    SSH_LOG(SSH_LOG_TRACE, "Possible overflow of rekey limit");
                     ll = -1;
                     break;
                 }
@@ -910,7 +1089,7 @@ ssh_config_parse_line(ssh_session session,
             case 'd':
             case 'D':
                 if (ll > LLONG_MAX / 24) {
-                    SSH_LOG(SSH_LOG_WARN, "Possible overflow of rekey limit");
+                    SSH_LOG(SSH_LOG_TRACE, "Possible overflow of rekey limit");
                     ll = -1;
                     break;
                 }
@@ -919,7 +1098,7 @@ ssh_config_parse_line(ssh_session session,
             case 'h':
             case 'H':
                 if (ll > LLONG_MAX / 60) {
-                    SSH_LOG(SSH_LOG_WARN, "Possible overflow of rekey limit");
+                    SSH_LOG(SSH_LOG_TRACE, "Possible overflow of rekey limit");
                     ll = -1;
                     break;
                 }
@@ -928,7 +1107,7 @@ ssh_config_parse_line(ssh_session session,
             case 'm':
             case 'M':
                 if (ll > LLONG_MAX / 60) {
-                    SSH_LOG(SSH_LOG_WARN, "Possible overflow of rekey limit");
+                    SSH_LOG(SSH_LOG_TRACE, "Possible overflow of rekey limit");
                     ll = -1;
                     break;
                 }
@@ -947,7 +1126,7 @@ ssh_config_parse_line(ssh_session session,
                 break;
             }
             if (*endp != '\0') {
-                SSH_LOG(SSH_LOG_WARN, "Invalid trailing characters after the"
+                SSH_LOG(SSH_LOG_TRACE, "Invalid trailing characters after the"
                         " rekey limit: %s", endp);
                 break;
             }
@@ -983,7 +1162,7 @@ ssh_config_parse_line(ssh_session session,
         }
         break;
     case SOC_NA:
-      SSH_LOG(SSH_LOG_INFO, "Unapplicable option: %s, line: %d",
+      SSH_LOG(SSH_LOG_TRACE, "Unapplicable option: %s, line: %d",
               keyword, count);
       break;
     case SOC_UNSUPPORTED:
@@ -991,8 +1170,21 @@ ssh_config_parse_line(ssh_session session,
               keyword, count);
       break;
     case SOC_UNKNOWN:
-      SSH_LOG(SSH_LOG_WARN, "Unknown option: %s, line: %d",
+      SSH_LOG(SSH_LOG_TRACE, "Unknown option: %s, line: %d",
               keyword, count);
+      break;
+    case SOC_IDENTITYAGENT:
+      p = ssh_config_get_str_tok(&s, NULL);
+      if (p && *parsing) {
+          ssh_options_set(session, SSH_OPTIONS_IDENTITY_AGENT, p);
+      }
+      break;
+    case SOC_IDENTITIESONLY:
+      i = ssh_config_get_yesno(&s, -1);
+      if (i >= 0 && *parsing) {
+        bool b = i;
+        ssh_options_set(session, SSH_OPTIONS_IDENTITIES_ONLY, &b);
+      }
       break;
     default:
       ssh_set_error(session, SSH_FATAL, "ERROR - unimplemented opcode: %d",
@@ -1019,10 +1211,16 @@ int ssh_config_parse_file(ssh_session session, const char *filename)
     unsigned int count = 0;
     FILE *f;
     int parsing, rv;
+    bool global = 0;
 
     f = fopen(filename, "r");
     if (f == NULL) {
         return 0;
+    }
+
+    rv = strcmp(filename, GLOBAL_CLIENT_CONFIG);
+    if (rv == 0) {
+        global = true;
     }
 
     SSH_LOG(SSH_LOG_PACKET, "Reading configuration data from %s", filename);
@@ -1030,7 +1228,7 @@ int ssh_config_parse_file(ssh_session session, const char *filename)
     parsing = 1;
     while (fgets(line, sizeof(line), f)) {
         count++;
-        rv = ssh_config_parse_line(session, line, count, &parsing);
+        rv = ssh_config_parse_line(session, line, count, &parsing, 0, global);
         if (rv < 0) {
             fclose(f);
             return -1;
@@ -1039,4 +1237,58 @@ int ssh_config_parse_file(ssh_session session, const char *filename)
 
     fclose(f);
     return 0;
+}
+
+/* @brief Parse configuration string and set the options to the given session
+ *
+ * @params[in] session   The ssh session
+ * @params[in] input     Null terminated string containing the configuration
+ *
+ * @returns    SSH_OK on successful parsing the configuration string,
+ *             SSH_ERROR on error
+ */
+int ssh_config_parse_string(ssh_session session, const char *input)
+{
+    char line[MAX_LINE_SIZE] = {0};
+    const char *c = input, *line_start = input;
+    unsigned int line_num = 0, line_len;
+    int parsing, rv;
+
+    SSH_LOG(SSH_LOG_DEBUG, "Reading configuration data from string:");
+    SSH_LOG(SSH_LOG_DEBUG, "START\n%s\nEND", input);
+
+    parsing = 1;
+    while (1) {
+        line_num++;
+        line_start = c;
+        c = strchr(line_start, '\n');
+        if (c == NULL) {
+            /* if there is no newline at the end of the string */
+            c = strchr(line_start, '\0');
+        }
+        if (c == NULL) {
+            /* should not happen, would mean a string without trailing '\0' */
+            SSH_LOG(SSH_LOG_TRACE, "No trailing '\\0' in config string");
+            return SSH_ERROR;
+        }
+        line_len = c - line_start;
+        if (line_len > MAX_LINE_SIZE - 1) {
+            SSH_LOG(SSH_LOG_TRACE, "Line %u too long: %u characters",
+                    line_num, line_len);
+            return SSH_ERROR;
+        }
+        memcpy(line, line_start, line_len);
+        line[line_len] = '\0';
+        SSH_LOG(SSH_LOG_DEBUG, "Line %u: %s", line_num, line);
+        rv = ssh_config_parse_line(session, line, line_num, &parsing, 0, false);
+        if (rv < 0) {
+            return SSH_ERROR;
+        }
+        if (*c == '\0') {
+            break;
+        }
+        c++;
+    }
+
+    return SSH_OK;
 }

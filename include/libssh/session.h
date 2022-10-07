@@ -23,6 +23,7 @@
 #include <stdbool.h>
 
 #include "libssh/priv.h"
+#include "libssh/callbacks.h"
 #include "libssh/kex.h"
 #include "libssh/packet.h"
 #include "libssh/pcap.h"
@@ -92,6 +93,12 @@ enum ssh_pending_call_e {
 #define SSH_OPT_FLAG_KBDINT_AUTH 0x4
 #define SSH_OPT_FLAG_GSSAPI_AUTH 0x8
 
+/* Escape expansion of different variables */
+#define SSH_OPT_EXP_FLAG_KNOWNHOSTS 0x1
+#define SSH_OPT_EXP_FLAG_GLOBAL_KNOWNHOSTS 0x2
+#define SSH_OPT_EXP_FLAG_PROXYCOMMAND 0x4
+#define SSH_OPT_EXP_FLAG_IDENTITY 0x8
+
 /* extensions flags */
 /* negotiation enabled */
 #define SSH_EXT_NEGOTIATION     0x01
@@ -135,6 +142,7 @@ struct ssh_session_struct {
                        the server */
     char *discon_msg; /* disconnect message from
                          the remote host */
+    char *disconnect_message; /* disconnect message to be set */
     ssh_buffer in_buffer;
     PACKET in_packet;
     ssh_buffer out_buffer;
@@ -173,7 +181,7 @@ struct ssh_session_struct {
     struct ssh_crypto_struct *next_crypto;  /* next_crypto is going to be used after a SSH2_MSG_NEWKEYS */
 
     struct ssh_list *channels; /* linked list of channels */
-    int maxchannel;
+    uint32_t maxchannel;
     ssh_agent agent; /* ssh agent */
 
 /* keyb interactive data */
@@ -207,6 +215,7 @@ struct ssh_session_struct {
 #endif
     struct {
         struct ssh_list *identity;
+        struct ssh_list *identity_non_exp;
         char *username;
         char *host;
         char *bindaddr; /* bind the client to an ip addr */
@@ -217,9 +226,11 @@ struct ssh_session_struct {
         char *pubkey_accepted_types;
         char *ProxyCommand;
         char *custombanner;
+        char *moduli_file;
+        char *agent_socket;
         unsigned long timeout; /* seconds */
         unsigned long timeout_usec;
-        unsigned int port;
+        uint16_t port;
         socket_t fd;
         int StrictHostKeyChecking;
         char compressionlevel;
@@ -227,11 +238,14 @@ struct ssh_session_struct {
         char *gss_client_identity;
         int gss_delegate_creds;
         int flags;
+        int exp_flags;
         int nodelay;
         bool config_processed;
         uint8_t options_seen[SOC_MAX];
         uint64_t rekey_data;
         uint32_t rekey_time;
+        int rsa_min_size;
+        bool identities_only;
     } opts;
     /* counters */
     ssh_counter socket_counter;
@@ -246,7 +260,7 @@ struct ssh_session_struct {
 typedef int (*ssh_termination_function)(void *user);
 int ssh_handle_packets(ssh_session session, int timeout);
 int ssh_handle_packets_termination(ssh_session session,
-                                   long timeout,
+                                   int timeout,
                                    ssh_termination_function fct,
                                    void *user);
 void ssh_socket_exception_callback(int code, int errno_code, void *user);

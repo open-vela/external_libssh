@@ -22,6 +22,10 @@
 #define CHANNELS_H_
 #include "libssh/priv.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**  @internal
  * Describes the different possible states in a
  * outgoing (client) channel request
@@ -35,7 +39,7 @@ enum ssh_channel_request_state_e {
 	SSH_CHANNEL_REQ_STATE_ACCEPTED,
 	/** A request has been replied and refused */
 	SSH_CHANNEL_REQ_STATE_DENIED,
-	/** A request has been replied and an error happend */
+	/** A request has been replied and an error happened */
 	SSH_CHANNEL_REQ_STATE_ERROR
 };
 
@@ -98,7 +102,7 @@ SSH_PACKET_CALLBACK(channel_rcv_request);
 SSH_PACKET_CALLBACK(channel_rcv_data);
 
 int channel_default_bufferize(ssh_channel channel,
-                              void *data, size_t len,
+                              void *data, uint32_t len,
                               bool is_stderr);
 int ssh_channel_flush(ssh_channel channel);
 uint32_t ssh_channel_new_id(ssh_session session);
@@ -108,5 +112,9 @@ int ssh_global_request(ssh_session session,
                        const char *request,
                        ssh_buffer buffer,
                        int reply);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* CHANNELS_H_ */
