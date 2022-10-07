@@ -33,15 +33,17 @@
 #include <stdbool.h>
 #include <limits.h>
 #ifndef _WIN32
+# include <sys/types.h>
+# include <sys/stat.h>
 # include <fcntl.h>
 # include <errno.h>
+# include <signal.h>
 # include <sys/wait.h>
 #endif
 
 #include "libssh/config_parser.h"
 #include "libssh/config.h"
 #include "libssh/priv.h"
-#include "libssh/socket.h"
 #include "libssh/session.h"
 #include "libssh/misc.h"
 #include "libssh/options.h"
@@ -314,9 +316,21 @@ ssh_match_exec(ssh_session session, const char *command, bool negate)
 static int
 ssh_exec_shell(char *cmd)
 {
+    char *shell = NULL;
     pid_t pid;
-    int status, devnull;
+    int status, devnull, rc;
     char err_msg[SSH_ERRNO_MSG_MAX] = {0};
+
+    shell = getenv("SHELL");
+    if (shell == NULL || shell[0] == '\0') {
+        shell = (char *)"/bin/sh";
+    }
+
+    rc = access(shell, X_OK);
+    if (rc != 0) {
+        SSH_LOG(SSH_LOG_WARN, "The shell '%s' is not executable", shell);
+        return -1;
+    }
 
     /* Need this to redirect subprocess stdin/out */
     devnull = open("/dev/null", O_RDWR);
@@ -327,7 +341,44 @@ ssh_exec_shell(char *cmd)
     }
 
     SSH_LOG(SSH_LOG_DEBUG, "Running command '%s'", cmd);
-    pid = ssh_execute_command(cmd, devnull, devnull);
+    pid = fork();
+    if (pid == 0) { /* Child */
+        char *argv[4];
+
+        /* Redirect child stdin and stdout. Leave stderr */
+        rc = dup2(devnull, STDIN_FILENO);
+        if (rc == -1) {
+            SSH_LOG(SSH_LOG_WARN, "dup2: %s",
+                    ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
+            exit(1);
+        }
+        rc = dup2(devnull, STDOUT_FILENO);
+        if (rc == -1) {
+            SSH_LOG(SSH_LOG_WARN, "dup2: %s",
+                    ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
+	    exit(1);
+        }
+        if (devnull > STDERR_FILENO) {
+            close(devnull);
+        }
+
+        argv[0] = shell;
+        argv[1] = (char *) "-c";
+        argv[2] = strdup(cmd);
+        argv[3] = NULL;
+
+        rc = execv(argv[0], argv);
+        if (rc == -1) {
+            SSH_LOG(SSH_LOG_WARN, "Failed to execute command '%s': %s", cmd,
+                    ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
+            /* Die with signal to make this error apparent to parent. */
+            signal(SIGTERM, SIG_DFL);
+            kill(getpid(), SIGTERM);
+            _exit(1);
+        }
+    }
+
+    /* Parent */
     close(devnull);
     if (pid == -1) { /* Error */
         SSH_LOG(SSH_LOG_WARN, "Failed to fork child: %s",
