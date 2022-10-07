@@ -58,7 +58,7 @@
 /**
  * @internal
  *
- * @brief Ask for access to the ssh-userauth service.
+ * @brief Ask access to the ssh-userauth service.
  *
  * @param[in] session   The SSH session handle.
  *
@@ -66,8 +66,7 @@
  * @returns SSH_AGAIN on nonblocking mode, if calling that function
  * again is necessary
  */
-static int ssh_userauth_request_service(ssh_session session)
-{
+static int ssh_userauth_request_service(ssh_session session) {
     int rc;
 
     rc = ssh_service_request(session, "ssh-userauth");
@@ -79,8 +78,7 @@ static int ssh_userauth_request_service(ssh_session session)
     return rc;
 }
 
-static int ssh_auth_response_termination(void *user)
-{
+static int ssh_auth_response_termination(void *user) {
     ssh_session session = (ssh_session)user;
     switch (session->auth.state) {
         case SSH_AUTH_STATE_NONE:
@@ -141,8 +139,7 @@ static const char *ssh_auth_get_current_method(ssh_session session)
  *          SSH_AUTH_AGAIN   In nonblocking mode, call has to be made again
  *          SSH_AUTH_ERROR   Error during the process.
  */
-static int ssh_userauth_get_response(ssh_session session)
-{
+static int ssh_userauth_get_response(ssh_session session) {
     int rc = SSH_AUTH_ERROR;
 
     rc = ssh_handle_packets_termination(session, SSH_TIMEOUT_USER,
@@ -367,7 +364,7 @@ SSH_PACKET_CALLBACK(ssh_packet_userauth_pk_ok) {
  *
  * @param[in] username  Deprecated, set to NULL.
  *
- * @returns             A bitfield of the following values:
+ * @returns             A bitfield of the fllowing values:
  *                      - SSH_AUTH_METHOD_PASSWORD
  *                      - SSH_AUTH_METHOD_PUBLICKEY
  *                      - SSH_AUTH_METHOD_HOSTBASED
@@ -406,11 +403,10 @@ int ssh_userauth_list(ssh_session session, const char *username)
  * authentication. The username should only be set with ssh_options_set() only
  * before you connect to the server.
  */
-int ssh_userauth_none(ssh_session session, const char *username)
-{
+int ssh_userauth_none(ssh_session session, const char *username) {
     int rc;
 
-    switch (session->pending_call_state) {
+    switch(session->pending_call_state) {
         case SSH_PENDING_CALL_NONE:
             break;
         case SSH_PENDING_CALL_AUTH_NONE:
@@ -496,7 +492,6 @@ int ssh_userauth_try_publickey(ssh_session session,
 {
     ssh_string pubkey_s = NULL;
     const char *sig_type_c = NULL;
-    bool allowed;
     int rc;
 
     if (session == NULL) {
@@ -518,7 +513,7 @@ int ssh_userauth_try_publickey(ssh_session session,
                           SSH_FATAL,
                           "Wrong state (%d) during pending SSH call",
                           session->pending_call_state);
-            return SSH_AUTH_ERROR;
+            return SSH_ERROR;
     }
 
     /* Check if the given public key algorithm is allowed */
@@ -528,19 +523,11 @@ int ssh_userauth_try_publickey(ssh_session session,
                       "Invalid key type (unknown)");
         return SSH_AUTH_DENIED;
     }
-    rc = ssh_key_algorithm_allowed(session, sig_type_c);
-    if (!rc) {
+    if (!ssh_key_algorithm_allowed(session, sig_type_c)) {
         ssh_set_error(session, SSH_REQUEST_DENIED,
                       "The key algorithm '%s' is not allowed to be used by"
                       " PUBLICKEY_ACCEPTED_TYPES configuration option",
                       sig_type_c);
-        return SSH_AUTH_DENIED;
-    }
-    allowed = ssh_key_size_allowed(session, pubkey);
-    if (!allowed) {
-        ssh_set_error(session, SSH_REQUEST_DENIED,
-                      "The '%s' key type of size %d is not allowed by "
-                      "RSA_MIN_SIZE", sig_type_c, ssh_key_size(pubkey));
         return SSH_AUTH_DENIED;
     }
 
@@ -624,7 +611,6 @@ int ssh_userauth_publickey(ssh_session session,
                            const ssh_key privkey)
 {
     ssh_string str = NULL;
-    bool allowed;
     int rc;
     const char *sig_type_c = NULL;
     enum ssh_keytypes_e key_type;
@@ -661,19 +647,11 @@ int ssh_userauth_publickey(ssh_session session,
                       "Invalid key type (unknown)");
         return SSH_AUTH_DENIED;
     }
-    rc = ssh_key_algorithm_allowed(session, sig_type_c);
-    if (!rc) {
+    if (!ssh_key_algorithm_allowed(session, sig_type_c)) {
         ssh_set_error(session, SSH_REQUEST_DENIED,
                       "The key algorithm '%s' is not allowed to be used by"
                       " PUBLICKEY_ACCEPTED_TYPES configuration option",
                       sig_type_c);
-        return SSH_AUTH_DENIED;
-    }
-    allowed = ssh_key_size_allowed(session, privkey);
-    if (!allowed) {
-        ssh_set_error(session, SSH_REQUEST_DENIED,
-                      "The '%s' key type of size %d is not allowed by "
-                      "RSA_MIN_SIZE", sig_type_c, ssh_key_size(privkey));
         return SSH_AUTH_DENIED;
     }
 
@@ -744,6 +722,7 @@ fail:
     return SSH_AUTH_ERROR;
 }
 
+#ifndef _WIN32
 static int ssh_userauth_agent_publickey(ssh_session session,
                                         const char *username,
                                         ssh_key pubkey)
@@ -751,7 +730,6 @@ static int ssh_userauth_agent_publickey(ssh_session session,
     ssh_string pubkey_s = NULL;
     ssh_string sig_blob = NULL;
     const char *sig_type_c = NULL;
-    bool allowed;
     int rc;
 
     switch(session->pending_call_state) {
@@ -787,20 +765,11 @@ static int ssh_userauth_agent_publickey(ssh_session session,
         SSH_STRING_FREE(pubkey_s);
         return SSH_AUTH_DENIED;
     }
-    rc = ssh_key_algorithm_allowed(session, sig_type_c);
-    if (!rc) {
+    if (!ssh_key_algorithm_allowed(session, sig_type_c)) {
         ssh_set_error(session, SSH_REQUEST_DENIED,
                       "The key algorithm '%s' is not allowed to be used by"
                       " PUBLICKEY_ACCEPTED_TYPES configuration option",
                       sig_type_c);
-        SSH_STRING_FREE(pubkey_s);
-        return SSH_AUTH_DENIED;
-    }
-    allowed = ssh_key_size_allowed(session, pubkey);
-    if (!allowed) {
-        ssh_set_error(session, SSH_REQUEST_DENIED,
-                      "The '%s' key type of size %d is not allowed by "
-                      "RSA_MIN_SIZE", sig_type_c, ssh_key_size(pubkey));
         SSH_STRING_FREE(pubkey_s);
         return SSH_AUTH_DENIED;
     }
@@ -868,8 +837,7 @@ struct ssh_agent_state_struct {
 };
 
 /* Internal function */
-void ssh_agent_state_free(void *data)
-{
+void ssh_agent_state_free(void *data) {
     struct ssh_agent_state_struct *state = data;
 
     if (state) {
@@ -902,8 +870,7 @@ void ssh_agent_state_free(void *data)
  * before you connect to the server.
  */
 int ssh_userauth_agent(ssh_session session,
-                       const char *username)
-{
+                       const char *username) {
     int rc = SSH_AUTH_ERROR;
     struct ssh_agent_state_struct *state;
 
@@ -992,6 +959,7 @@ int ssh_userauth_agent(ssh_session session,
     session->agent_state = NULL;
     return rc;
 }
+#endif
 
 enum ssh_auth_auto_state_e {
     SSH_AUTH_AUTO_STATE_NONE = 0,
@@ -1006,55 +974,6 @@ struct ssh_auth_auto_state_struct {
     ssh_key privkey;
     ssh_key pubkey;
 };
-
-/**
- * @brief Get the identity that is currently being processed by
- * ssh_userauth_publickey_auto()
- *
- * This is meant to be used by a callback that happens as part of the
- * execution of ssh_userauth_publickey_auto().  The auth_function
- * callback might want to know which key a passphrase is needed for,
- * for example.
- *
- * @param[in]  session     The SSH session.
- *
- * @param[out] value       The value to get into. As a char**, space will be
- *                         allocated by the function for the value, it is
- *                         your responsibility to free the memory using
- *                         ssh_string_free_char().
- *
- * @return  SSH_OK on success, SSH_ERROR on error.
- */
-int ssh_userauth_publickey_auto_get_current_identity(ssh_session session,
-                                                     char** value)
-{
-    const char *id = NULL;
-
-    if (session == NULL) {
-        return SSH_ERROR;
-    }
-
-    if (value == NULL) {
-        ssh_set_error_invalid(session);
-        return SSH_ERROR;
-    }
-
-    if (session->auth.auto_state != NULL && session->auth.auto_state->it != NULL) {
-        id = session->auth.auto_state->it->data;
-    }
-
-    if (id == NULL) {
-        return SSH_ERROR;
-    }
-
-    *value = strdup(id);
-    if (*value == NULL) {
-        ssh_set_error_oom(session);
-        return SSH_ERROR;
-    }
-
-    return SSH_OK;
-}
 
 /**
  * @brief Tries to automatically authenticate with public key and "none"
@@ -1076,7 +995,8 @@ int ssh_userauth_publickey_auto_get_current_identity(ssh_session session,
  *                            method.\n
  *          SSH_AUTH_PARTIAL: You've been partially authenticated, you still
  *                            have to use another method.\n
- *          SSH_AUTH_SUCCESS: Authentication success\n
+ *          SSH_AUTH_SUCCESS: The public key is accepted, you want now to use
+ *                            ssh_userauth_publickey().\n
  *          SSH_AUTH_AGAIN:   In nonblocking mode, you've got to call this again
  *                            later.
  *
@@ -1117,6 +1037,7 @@ int ssh_userauth_publickey_auto(ssh_session session,
     }
     state = session->auth.auto_state;
     if (state->state == SSH_AUTH_AUTO_STATE_NONE) {
+#ifndef _WIN32
         /* Try authentication with ssh-agent first */
         rc = ssh_userauth_agent(session, username);
         if (rc == SSH_AUTH_SUCCESS ||
@@ -1124,6 +1045,7 @@ int ssh_userauth_publickey_auto(ssh_session session,
             rc == SSH_AUTH_AGAIN ) {
             return rc;
         }
+#endif
         state->state = SSH_AUTH_AUTO_STATE_PUBKEY;
     }
     if (state->it == NULL) {
@@ -1139,22 +1061,7 @@ int ssh_userauth_publickey_auto(ssh_session session,
                     "Trying to authenticate with %s", privkey_file);
             state->privkey = NULL;
             state->pubkey = NULL;
-
-            if (ssh_pki_is_uri(privkey_file)) {
-                char *pub_uri_from_priv = NULL;
-                SSH_LOG(SSH_LOG_INFO,
-                        "Authenticating with PKCS #11 URI.");
-                pub_uri_from_priv = ssh_pki_export_pub_uri_from_priv_uri(privkey_file);
-                if (pub_uri_from_priv == NULL) {
-                    return SSH_ERROR;
-                } else {
-                    snprintf(pubkey_file, sizeof(pubkey_file), "%s",
-                             pub_uri_from_priv);
-                    SAFE_FREE(pub_uri_from_priv);
-                }
-            } else {
-                snprintf(pubkey_file, sizeof(pubkey_file), "%s.pub", privkey_file);
-            }
+            snprintf(pubkey_file, sizeof(pubkey_file), "%s.pub", privkey_file);
 
             rc = ssh_pki_import_pubkey_file(pubkey_file, &state->pubkey);
             if (rc == SSH_ERROR) {
@@ -1328,11 +1235,10 @@ int ssh_userauth_publickey_auto(ssh_session session,
  */
 int ssh_userauth_password(ssh_session session,
                           const char *username,
-                          const char *password)
-{
+                          const char *password) {
     int rc;
 
-    switch (session->pending_call_state) {
+    switch(session->pending_call_state) {
         case SSH_PENDING_CALL_NONE:
             break;
         case SSH_PENDING_CALL_AUTH_PASSWORD:
@@ -1390,6 +1296,7 @@ fail:
     return SSH_AUTH_ERROR;
 }
 
+#ifndef _WIN32
 /* LEGACY */
 int ssh_userauth_agent_pubkey(ssh_session session,
                               const char *username,
@@ -1406,28 +1313,20 @@ int ssh_userauth_agent_pubkey(ssh_session session,
     key->type = publickey->type;
     key->type_c = ssh_key_type_to_char(key->type);
     key->flags = SSH_KEY_FLAG_PUBLIC;
-#if !defined(HAVE_LIBCRYPTO) || OPENSSL_VERSION_NUMBER < 0x30000000L
     key->dsa = publickey->dsa_pub;
     key->rsa = publickey->rsa_pub;
-#else
-    key->key = publickey->key_pub;
-#endif /* OPENSSL_VERSION_NUMBER */
 
     rc = ssh_userauth_agent_publickey(session, username, key);
 
-#if !defined(HAVE_LIBCRYPTO) || OPENSSL_VERSION_NUMBER < 0x30000000L
     key->dsa = NULL;
     key->rsa = NULL;
-#else
-    key->key = NULL;
-#endif /* OPENSSL_VERSION_NUMBER */
     ssh_key_free(key);
 
     return rc;
 }
+#endif /* _WIN32 */
 
-ssh_kbdint ssh_kbdint_new(void)
-{
+ssh_kbdint ssh_kbdint_new(void) {
     ssh_kbdint kbd;
 
     kbd = calloc(1, sizeof(struct ssh_kbdint_struct));
@@ -1439,8 +1338,7 @@ ssh_kbdint ssh_kbdint_new(void)
 }
 
 
-void ssh_kbdint_free(ssh_kbdint kbd)
-{
+void ssh_kbdint_free(ssh_kbdint kbd) {
     size_t i, n;
 
     if (kbd == NULL) {
@@ -1476,8 +1374,7 @@ void ssh_kbdint_free(ssh_kbdint kbd)
     SAFE_FREE(kbd);
 }
 
-void ssh_kbdint_clean(ssh_kbdint kbd)
-{
+void ssh_kbdint_clean(ssh_kbdint kbd) {
     size_t i, n;
 
     if (kbd == NULL) {
@@ -1755,8 +1652,7 @@ SSH_PACKET_CALLBACK(ssh_packet_userauth_info_request) {
  * @see ssh_userauth_kbdint_setanswer()
  */
 int ssh_userauth_kbdint(ssh_session session, const char *user,
-                        const char *submethods)
-{
+    const char *submethods) {
     int rc = SSH_AUTH_ERROR;
 
     if (session == NULL) {
@@ -1798,8 +1694,7 @@ int ssh_userauth_kbdint(ssh_session session, const char *user,
  *
  * @returns             The number of prompts.
  */
-int ssh_userauth_kbdint_getnprompts(ssh_session session)
-{
+int ssh_userauth_kbdint_getnprompts(ssh_session session) {
     if (session == NULL) {
         return SSH_ERROR;
     }
@@ -1821,8 +1716,7 @@ int ssh_userauth_kbdint_getnprompts(ssh_session session)
  *
  * @returns             The name of the message block. Do not free it.
  */
-const char *ssh_userauth_kbdint_getname(ssh_session session)
-{
+const char *ssh_userauth_kbdint_getname(ssh_session session) {
     if (session == NULL) {
         return NULL;
     }
@@ -1845,8 +1739,7 @@ const char *ssh_userauth_kbdint_getname(ssh_session session)
  * @returns             The instruction of the message block.
  */
 
-const char *ssh_userauth_kbdint_getinstruction(ssh_session session)
-{
+const char *ssh_userauth_kbdint_getinstruction(ssh_session session) {
     if (session == NULL)
         return NULL;
     if (session->kbdint == NULL) {
@@ -1881,9 +1774,8 @@ const char *ssh_userauth_kbdint_getinstruction(ssh_session session)
  *   if (echo) ...
  * @endcode
  */
-const char *
-ssh_userauth_kbdint_getprompt(ssh_session session, unsigned int i, char *echo)
-{
+const char *ssh_userauth_kbdint_getprompt(ssh_session session, unsigned int i,
+    char *echo) {
     if (session == NULL)
         return NULL;
     if (session->kbdint == NULL) {
@@ -1910,8 +1802,7 @@ ssh_userauth_kbdint_getprompt(ssh_session session, unsigned int i, char *echo)
  *
  * @returns             The number of answers.
  */
-int ssh_userauth_kbdint_getnanswers(ssh_session session)
-{
+int ssh_userauth_kbdint_getnanswers(ssh_session session) {
     if (session == NULL || session->kbdint == NULL) {
         return SSH_ERROR;
     }
@@ -1919,7 +1810,7 @@ int ssh_userauth_kbdint_getnanswers(ssh_session session)
 }
 
 /**
- * @brief Get the answer to a question from a message block.
+ * @brief Get the answer for a question from a message block.
  *
  * @param[in]  session  The ssh session to use.
  *
@@ -1927,8 +1818,7 @@ int ssh_userauth_kbdint_getnanswers(ssh_session session)
  *
  * @return              0 on success, < 0 on error.
  */
-const char *ssh_userauth_kbdint_getanswer(ssh_session session, unsigned int i)
-{
+const char *ssh_userauth_kbdint_getanswer(ssh_session session, unsigned int i) {
     if (session == NULL || session->kbdint == NULL
             || session->kbdint->answers == NULL) {
         return NULL;
@@ -1959,10 +1849,8 @@ const char *ssh_userauth_kbdint_getanswer(ssh_session session, unsigned int i)
  *
  * @return              0 on success, < 0 on error.
  */
-int
-ssh_userauth_kbdint_setanswer(ssh_session session, unsigned int i,
-                              const char *answer)
-{
+int ssh_userauth_kbdint_setanswer(ssh_session session, unsigned int i,
+    const char *answer) {
     if (session == NULL) {
         return -1;
     }
@@ -2008,8 +1896,7 @@ ssh_userauth_kbdint_setanswer(ssh_session session, unsigned int i,
  *          SSH_AUTH_AGAIN:   In nonblocking mode, you've got to call this again
  *                            later.
  */
-int ssh_userauth_gssapi(ssh_session session)
-{
+int ssh_userauth_gssapi(ssh_session session) {
     int rc = SSH_AUTH_DENIED;
 #ifdef WITH_GSSAPI
     switch(session->pending_call_state) {

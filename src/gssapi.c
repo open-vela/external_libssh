@@ -68,8 +68,7 @@ struct ssh_gssapi_struct{
 /** @internal
  * @initializes a gssapi context for authentication
  */
-static int ssh_gssapi_init(ssh_session session)
-{
+static int ssh_gssapi_init(ssh_session session){
     if (session->gssapi != NULL)
         return SSH_OK;
     session->gssapi = malloc(sizeof(struct ssh_gssapi_struct));
@@ -88,8 +87,7 @@ static int ssh_gssapi_init(ssh_session session)
 /** @internal
  * @frees a gssapi context
  */
-static void ssh_gssapi_free(ssh_session session)
-{
+static void ssh_gssapi_free(ssh_session session){
     OM_uint32 min;
     if (session->gssapi == NULL)
         return;
@@ -116,8 +114,7 @@ SSH_PACKET_CALLBACK(ssh_packet_userauth_gssapi_token){
  * @brief sends a SSH_MSG_USERAUTH_GSSAPI_RESPONSE packet
  * @param[in] oid the OID that was selected for authentication
  */
-static int ssh_gssapi_send_response(ssh_session session, ssh_string oid)
-{
+static int ssh_gssapi_send_response(ssh_session session, ssh_string oid){
     if (ssh_buffer_add_u8(session->out_buffer, SSH2_MSG_USERAUTH_GSSAPI_RESPONSE) < 0 ||
             ssh_buffer_add_ssh_string(session->out_buffer,oid) < 0) {
         ssh_set_error_oom(session);
@@ -187,11 +184,8 @@ out:
 /** @internal
  * @brief handles an user authentication using GSSAPI
  */
-int
-ssh_gssapi_handle_userauth(ssh_session session, const char *user,
-                           uint32_t n_oid, ssh_string *oids)
-{
-    char service_name[] = "host";
+int ssh_gssapi_handle_userauth(ssh_session session, const char *user, uint32_t n_oid, ssh_string *oids){
+    char service_name[]="host";
     gss_buffer_desc name_buf;
     gss_name_t server_name; /* local server fqdn */
     OM_uint32 maj_stat, min_stat;
@@ -333,8 +327,7 @@ ssh_gssapi_handle_userauth(ssh_session session, const char *user,
     return ssh_gssapi_send_response(session, oids[i]);
 }
 
-static char *ssh_gssapi_name_to_char(gss_name_t name)
-{
+static char *ssh_gssapi_name_to_char(gss_name_t name){
     gss_buffer_desc buffer;
     OM_uint32 maj_stat, min_stat;
     char *ptr;
@@ -472,8 +465,8 @@ static ssh_buffer ssh_gssapi_build_mic(ssh_session session)
 
     rc = ssh_buffer_pack(mic_buffer,
                          "dPbsss",
-                         crypto->session_id_len,
-                         crypto->session_id_len, crypto->session_id,
+                         crypto->digest_len,
+                         (size_t)crypto->digest_len, crypto->session_id,
                          SSH2_MSG_USERAUTH_REQUEST,
                          session->gssapi->user,
                          "ssh-connection",
@@ -579,8 +572,7 @@ end:
  * @returns gssapi credentials handle.
  * @returns NULL if no forwardable token is available.
  */
-ssh_gssapi_creds ssh_gssapi_get_creds(ssh_session session)
-{
+ssh_gssapi_creds ssh_gssapi_get_creds(ssh_session session){
     if (!session || !session->gssapi || session->gssapi->client_creds == GSS_C_NO_CREDENTIAL)
         return NULL;
     return (ssh_gssapi_creds)session->gssapi->client_creds;
@@ -589,7 +581,7 @@ ssh_gssapi_creds ssh_gssapi_get_creds(ssh_session session)
 #endif /* SERVER */
 
 /**
- * @brief Set the forwardable ticket to be given to the server for authentication.
+ * @brief Set the forwadable ticket to be given to the server for authentication.
  * Unlike ssh_gssapi_get_creds() this is called on the client side of an ssh
  * connection.
  *
@@ -610,9 +602,7 @@ void ssh_gssapi_set_creds(ssh_session session, const ssh_gssapi_creds creds)
     session->gssapi->client.client_deleg_creds = (gss_cred_id_t)creds;
 }
 
-static int
-ssh_gssapi_send_auth_mic(ssh_session session, ssh_string *oid_set, int n_oid)
-{
+static int ssh_gssapi_send_auth_mic(ssh_session session, ssh_string *oid_set, int n_oid){
     int rc;
     int i;
 
@@ -721,8 +711,7 @@ end:
  *          SSH_AUTH_AGAIN:   In nonblocking mode, you've got to call this again
  *                            later.
  */
-int ssh_gssapi_auth_mic(ssh_session session)
-{
+int ssh_gssapi_auth_mic(ssh_session session){
     size_t i;
     gss_OID_set selected; /* oid selected for authentication */
     ssh_string *oids = NULL;
@@ -913,8 +902,7 @@ error:
     return SSH_PACKET_USED;
 }
 
-static int ssh_gssapi_send_mic(ssh_session session)
-{
+static int ssh_gssapi_send_mic(ssh_session session){
     OM_uint32 maj_stat, min_stat;
     gss_buffer_desc mic_buf = GSS_C_EMPTY_BUFFER;
     gss_buffer_desc mic_token_buf = GSS_C_EMPTY_BUFFER;

@@ -104,8 +104,7 @@
  */
 
 #ifdef _WIN32
-char *ssh_get_user_home_dir(void)
-{
+char *ssh_get_user_home_dir(void) {
   char tmp[PATH_MAX] = {0};
   char *szPath = NULL;
 
@@ -123,13 +122,12 @@ char *ssh_get_user_home_dir(void)
 }
 
 /* we have read access on file */
-int ssh_file_readaccess_ok(const char *file)
-{
-    if (_access(file, 4) < 0) {
-        return 0;
-    }
+int ssh_file_readaccess_ok(const char *file) {
+  if (_access(file, 4) < 0) {
+    return 0;
+  }
 
-    return 1;
+  return 1;
 }
 
 /**
@@ -160,8 +158,7 @@ int ssh_dir_writeable(const char *path)
 #define SSH_USEC_IN_SEC         1000000LL
 #define SSH_SECONDS_SINCE_1601  11644473600LL
 
-int ssh_gettimeofday(struct timeval *__p, void *__t)
-{
+int gettimeofday(struct timeval *__p, void *__t) {
   union {
     unsigned long long ns100; /* time since 1 Jan 1601 in 100ns units */
     FILETIME ft;
@@ -174,8 +171,7 @@ int ssh_gettimeofday(struct timeval *__p, void *__t)
   return (0);
 }
 
-char *ssh_get_local_username(void)
-{
+char *ssh_get_local_username(void) {
     DWORD size = 0;
     char *user;
 
@@ -194,8 +190,7 @@ char *ssh_get_local_username(void)
     return NULL;
 }
 
-int ssh_is_ipaddr_v4(const char *str)
-{
+int ssh_is_ipaddr_v4(const char *str) {
     struct sockaddr_storage ss;
     int sslen = sizeof(ss);
     int rc = SOCKET_ERROR;
@@ -217,8 +212,7 @@ int ssh_is_ipaddr_v4(const char *str)
     return 0;
 }
 
-int ssh_is_ipaddr(const char *str)
-{
+int ssh_is_ipaddr(const char *str) {
     int rc = SOCKET_ERROR;
 
     if (strchr(str, ':')) {
@@ -325,8 +319,7 @@ char *ssh_get_local_username(void)
     return name;
 }
 
-int ssh_is_ipaddr_v4(const char *str)
-{
+int ssh_is_ipaddr_v4(const char *str) {
     int rc = -1;
     struct in_addr dest;
 
@@ -338,8 +331,7 @@ int ssh_is_ipaddr_v4(const char *str)
     return 0;
 }
 
-int ssh_is_ipaddr(const char *str)
-{
+int ssh_is_ipaddr(const char *str) {
     int rc = -1;
 
     if (strchr(str, ':')) {
@@ -357,8 +349,7 @@ int ssh_is_ipaddr(const char *str)
 
 #endif /* _WIN32 */
 
-char *ssh_lowercase(const char* str)
-{
+char *ssh_lowercase(const char* str) {
   char *new, *p;
 
   if (str == NULL) {
@@ -401,17 +392,15 @@ char *ssh_hostport(const char *host, int port)
  * @brief Convert a buffer into a colon separated hex string.
  * The caller has to free the memory.
  *
- * @param[in]  what         What should be converted to a hex string.
+ * @param  what         What should be converted to a hex string.
  *
- * @param[in]  len          Length of the buffer to convert.
+ * @param  len          Length of the buffer to convert.
  *
- * @return                  The hex string or NULL on error. The memory needs
- *                          to be freed using ssh_string_free_char().
+ * @return              The hex string or NULL on error.
  *
  * @see ssh_string_free_char()
  */
-char *ssh_get_hexa(const unsigned char *what, size_t len)
-{
+char *ssh_get_hexa(const unsigned char *what, size_t len) {
     const char h[] = "0123456789abcdef";
     char *hexa;
     size_t i;
@@ -439,8 +428,7 @@ char *ssh_get_hexa(const unsigned char *what, size_t len)
 /**
  * @deprecated          Please use ssh_print_hash() instead
  */
-void ssh_print_hexa(const char *descr, const unsigned char *what, size_t len)
-{
+void ssh_print_hexa(const char *descr, const unsigned char *what, size_t len) {
     char *hexa = ssh_get_hexa(what, len);
 
     if (hexa == NULL) {
@@ -467,7 +455,7 @@ void ssh_print_hexa(const char *descr, const unsigned char *what, size_t len)
  * "  00000000  00 01 02 03 04 05 06 07  08 09 0a 0b 0c 0d 0e 0f  ................"
  *
  * The value for each byte as corresponding ASCII character is printed at the
- * end if the value is printable. Otherwise, it is replaced with '.'.
+ * end if the value is printable. Otherwise it is replace with '.'.
  *
  * @param[in] descr A description for the content to be logged
  * @param[in] what  The buffer to be logged
@@ -661,54 +649,48 @@ error:
  *  }
  * @endcode
  */
-const char *ssh_version(int req_version)
-{
-    if (req_version <= LIBSSH_VERSION_INT) {
-        return SSH_STRINGIFY(LIBSSH_VERSION) GCRYPT_STRING CRYPTO_STRING
-               MBED_STRING ZLIB_STRING;
-    }
+const char *ssh_version(int req_version) {
+  if (req_version <= LIBSSH_VERSION_INT) {
+    return SSH_STRINGIFY(LIBSSH_VERSION) GCRYPT_STRING CRYPTO_STRING MBED_STRING
+      ZLIB_STRING;
+  }
 
+  return NULL;
+}
+
+struct ssh_list *ssh_list_new(void) {
+  struct ssh_list *ret=malloc(sizeof(struct ssh_list));
+  if(!ret)
     return NULL;
+  ret->root=ret->end=NULL;
+  return ret;
 }
 
-struct ssh_list *ssh_list_new(void)
-{
-    struct ssh_list *ret = malloc(sizeof(struct ssh_list));
-    if (!ret)
-        return NULL;
-    ret->root = ret->end = NULL;
-    return ret;
+void ssh_list_free(struct ssh_list *list){
+  struct ssh_iterator *ptr,*next;
+  if(!list)
+    return;
+  ptr=list->root;
+  while(ptr){
+    next=ptr->next;
+    SAFE_FREE(ptr);
+    ptr=next;
+  }
+  SAFE_FREE(list);
 }
 
-void ssh_list_free(struct ssh_list *list)
-{
-    struct ssh_iterator *ptr, *next;
-    if (!list)
-        return;
-    ptr = list->root;
-    while (ptr) {
-        next = ptr->next;
-        SAFE_FREE(ptr);
-        ptr = next;
-    }
-    SAFE_FREE(list);
-}
-
-struct ssh_iterator *ssh_list_get_iterator(const struct ssh_list *list)
-{
-    if (!list)
-        return NULL;
-    return list->root;
-}
-
-struct ssh_iterator *ssh_list_find(const struct ssh_list *list, void *value)
-{
-    struct ssh_iterator *it;
-
-    for (it = ssh_list_get_iterator(list); it != NULL ; it = it->next)
-        if (it->data == value)
-            return it;
+struct ssh_iterator *ssh_list_get_iterator(const struct ssh_list *list){
+  if(!list)
     return NULL;
+  return list->root;
+}
+
+struct ssh_iterator *ssh_list_find(const struct ssh_list *list, void *value){
+  struct ssh_iterator *it;
+  for(it = ssh_list_get_iterator(list); it != NULL ;it=it->next)
+    if(it->data==value)
+      return it;
+  return NULL;
 }
 
 /**
@@ -721,7 +703,7 @@ struct ssh_iterator *ssh_list_find(const struct ssh_list *list, void *value)
 size_t ssh_list_count(const struct ssh_list *list)
 {
   struct ssh_iterator *it = NULL;
-  size_t count = 0;
+  int count = 0;
 
   for (it = ssh_list_get_iterator(list); it != NULL ; it = it->next) {
       count++;
@@ -730,19 +712,16 @@ size_t ssh_list_count(const struct ssh_list *list)
   return count;
 }
 
-static struct ssh_iterator *ssh_iterator_new(const void *data)
-{
-    struct ssh_iterator *iterator = malloc(sizeof(struct ssh_iterator));
-
-    if (!iterator)
-        return NULL;
-    iterator->next = NULL;
-    iterator->data = data;
-    return iterator;
+static struct ssh_iterator *ssh_iterator_new(const void *data){
+  struct ssh_iterator *iterator=malloc(sizeof(struct ssh_iterator));
+  if(!iterator)
+    return NULL;
+  iterator->next=NULL;
+  iterator->data=data;
+  return iterator;
 }
 
-int ssh_list_append(struct ssh_list *list,const void *data)
-{
+int ssh_list_append(struct ssh_list *list,const void *data){
   struct ssh_iterator *iterator = NULL;
 
   if (list == NULL) {
@@ -765,8 +744,7 @@ int ssh_list_append(struct ssh_list *list,const void *data)
   return SSH_OK;
 }
 
-int ssh_list_prepend(struct ssh_list *list, const void *data)
-{
+int ssh_list_prepend(struct ssh_list *list, const void *data){
   struct ssh_iterator *it = NULL;
 
   if (list == NULL) {
@@ -790,9 +768,8 @@ int ssh_list_prepend(struct ssh_list *list, const void *data)
   return SSH_OK;
 }
 
-void ssh_list_remove(struct ssh_list *list, struct ssh_iterator *iterator)
-{
-  struct ssh_iterator *ptr, *prev;
+void ssh_list_remove(struct ssh_list *list, struct ssh_iterator *iterator){
+  struct ssh_iterator *ptr,*prev;
 
   if (list == NULL) {
       return;
@@ -831,8 +808,7 @@ void ssh_list_remove(struct ssh_list *list, struct ssh_iterator *iterator)
  * @returns             A pointer to the element being stored in head, or NULL
  *                      if the list is empty.
  */
-const void *_ssh_list_pop_head(struct ssh_list *list)
-{
+const void *_ssh_list_pop_head(struct ssh_list *list){
   struct ssh_iterator *iterator = NULL;
   const void *data = NULL;
 
@@ -858,21 +834,17 @@ const void *_ssh_list_pop_head(struct ssh_list *list)
  * dirname breaks a null-terminated pathname string into a directory component.
  * In the usual case, ssh_dirname() returns the string up to, but not including,
  * the final '/'. Trailing '/' characters are  not  counted as part of the
- * pathname. The caller must free the memory using ssh_string_free_char().
+ * pathname. The caller must free the memory.
  *
  * @param[in]  path     The path to parse.
  *
  * @return              The dirname of path or NULL if we can't allocate memory.
  *                      If path does not contain a slash, c_dirname() returns
- *                      the string ".".  If path is a string "/", it returns
+ *                      the string ".".  If path is the string "/", it returns
  *                      the string "/". If path is NULL or an empty string,
- *                      "." is returned. The memory needs to be freed using
- *                      ssh_string_free_char().
- *
- * @see ssh_string_free_char()
+ *                      "." is returned.
  */
-char *ssh_dirname (const char *path)
-{
+char *ssh_dirname (const char *path) {
   char *new = NULL;
   size_t len;
 
@@ -923,15 +895,11 @@ char *ssh_dirname (const char *path)
  * @param[in]  path     The path to parse.
  *
  * @return              The filename of path or NULL if we can't allocate
- *                      memory. If path is the string "/", basename returns
+ *                      memory. If path is a the string "/", basename returns
  *                      the string "/". If path is NULL or an empty string,
- *                      "." is returned. The caller needs to free this memory
- *                      ssh_string_free_char().
- *
- * @see ssh_string_free_char()
+ *                      "." is returned.
  */
-char *ssh_basename (const char *path)
-{
+char *ssh_basename (const char *path) {
   char *new = NULL;
   const char *s;
   size_t len;
@@ -1064,13 +1032,9 @@ int ssh_mkdirs(const char *pathname, mode_t mode)
  *
  * @param[in]  d        The directory to expand.
  *
- * @return              The expanded directory, NULL on error. The caller
- *                      needs to free the memory using ssh_string_free_char().
- *
- * @see ssh_string_free_char()
+ * @return              The expanded directory, NULL on error.
  */
-char *ssh_path_expand_tilde(const char *d)
-{
+char *ssh_path_expand_tilde(const char *d) {
     char *h = NULL, *r;
     const char *p;
     size_t ld;
@@ -1137,14 +1101,10 @@ char *ssh_path_expand_tilde(const char *d)
  *              %l local hostname
  *              %r remote username
  *              %p remote port
- * @returns Expanded string. The caller needs to free the memory using
- *          ssh_string_free_char().
- *
- * @see ssh_string_free_char()
+ * @returns Expanded string.
  */
-char *ssh_path_expand_escape(ssh_session session, const char *s)
-{
-    char host[NI_MAXHOST] = {0};
+char *ssh_path_expand_escape(ssh_session session, const char *s) {
+    char host[NI_MAXHOST];
     char *buf = NULL;
     char *r = NULL;
     char *x = NULL;
@@ -1196,15 +1156,7 @@ char *ssh_path_expand_escape(ssh_session session, const char *s)
             case '%':
                 goto escape;
             case 'd':
-                if (session->opts.sshdir) {
-                    x = strdup(session->opts.sshdir);
-                } else {
-                    ssh_set_error(session, SSH_FATAL,
-                            "Cannot expand sshdir");
-                    free(buf);
-                    free(r);
-                    return NULL;
-                }
+                x = strdup(session->opts.sshdir);
                 break;
             case 'u':
                 x = ssh_get_local_username();
@@ -1215,35 +1167,20 @@ char *ssh_path_expand_escape(ssh_session session, const char *s)
                 }
                 break;
             case 'h':
-                if (session->opts.host) {
-                    x = strdup(session->opts.host);
-                } else {
-                    ssh_set_error(session, SSH_FATAL,
-                            "Cannot expand host");
-                    free(buf);
-                    free(r);
-                    return NULL;
-                }
+                x = strdup(session->opts.host);
                 break;
             case 'r':
-                if (session->opts.username) {
-                    x = strdup(session->opts.username);
-                } else {
-                    ssh_set_error(session, SSH_FATAL,
-                            "Cannot expand username");
-                    free(buf);
-                    free(r);
-                    return NULL;
-                }
+                x = strdup(session->opts.username);
                 break;
             case 'p':
-                {
-                  char tmp[6];
+                if (session->opts.port < 65536) {
+                    char tmp[6];
 
-                  snprintf(tmp, sizeof(tmp), "%hu",
-                           (uint16_t)(session->opts.port > 0 ? session->opts.port
-                                                             : 22));
-                  x = strdup(tmp);
+                    snprintf(tmp,
+                             sizeof(tmp),
+                             "%u",
+                             session->opts.port > 0 ? session->opts.port : 22);
+                    x = strdup(tmp);
                 }
                 break;
             default:
@@ -1360,33 +1297,28 @@ int ssh_analyze_banner(ssh_session session, int server)
          * 012345678901234567890
          */
         if (strlen(openssh) > 9) {
-            errno = 0;
             major = strtoul(openssh + 8, &tmp, 10);
             if ((tmp == (openssh + 8)) ||
                 ((errno == ERANGE) && (major == ULONG_MAX)) ||
                 ((errno != 0) && (major == 0)) ||
                 ((major < 1) || (major > 100))) {
                 /* invalid major */
-                errno = 0;
                 goto done;
             }
 
-            errno = 0;
             minor = strtoul(openssh + 10, &tmp, 10);
             if ((tmp == (openssh + 10)) ||
                 ((errno == ERANGE) && (major == ULONG_MAX)) ||
                 ((errno != 0) && (major == 0)) ||
                 (minor > 100)) {
                 /* invalid minor */
-                errno = 0;
                 goto done;
             }
 
             session->openssh = SSH_VERSION_INT(((int) major), ((int) minor), 0);
 
             SSH_LOG(SSH_LOG_PROTOCOL,
-                    "We are talking to an OpenSSH %s version: %lu.%lu (%x)",
-                    server ? "client" : "server",
+                    "We are talking to an OpenSSH client version: %lu.%lu (%x)",
                     major, minor, session->openssh);
         }
     }
@@ -1407,8 +1339,7 @@ done:
  * @brief initializes a timestamp to the current time
  * @param[out] ts pointer to an allocated ssh_timestamp structure
  */
-void ssh_timestamp_init(struct ssh_timestamp *ts)
-{
+void ssh_timestamp_init(struct ssh_timestamp *ts){
 #ifdef HAVE_CLOCK_GETTIME
   struct timespec tp;
   clock_gettime(CLOCK, &tp);
@@ -1431,18 +1362,17 @@ void ssh_timestamp_init(struct ssh_timestamp *ts)
  * @returns difference in milliseconds
  */
 
-static int
-ssh_timestamp_difference(struct ssh_timestamp *old, struct ssh_timestamp *new)
-{
-    long seconds, usecs, msecs;
-    seconds = new->seconds - old->seconds;
-    usecs = new->useconds - old->useconds;
-    if (usecs < 0){
-        seconds--;
-        usecs += 1000000;
-    }
-    msecs = seconds * 1000 + usecs/1000;
-    return msecs;
+static int ssh_timestamp_difference(struct ssh_timestamp *old,
+    struct ssh_timestamp *new){
+  long seconds, usecs, msecs;
+  seconds = new->seconds - old->seconds;
+  usecs = new->useconds - old->useconds;
+  if (usecs < 0){
+    seconds--;
+    usecs += 1000000;
+  }
+  msecs = seconds * 1000 + usecs/1000;
+  return msecs;
 }
 
 /**
@@ -1453,20 +1383,14 @@ ssh_timestamp_difference(struct ssh_timestamp *old, struct ssh_timestamp *new)
  * @param[in] usec number of microseconds
  * @returns milliseconds, or 10000 if user supplied values are equal to zero
  */
-int ssh_make_milliseconds(unsigned long sec, unsigned long usec)
-{
-	unsigned long res = usec ? (usec / 1000) : 0;
+int ssh_make_milliseconds(long sec, long usec) {
+	int res = usec ? (usec / 1000) : 0;
 	res += (sec * 1000);
 	if (res == 0) {
 		res = 10 * 1000; /* use a reasonable default value in case
 				* SSH_OPTIONS_TIMEOUT is not set in options. */
 	}
-
-    if (res > INT_MAX) {
-        return SSH_TIMEOUT_INFINITE;
-    } else {
-        return (int)res;
-    }
+	return res;
 }
 
 /**
@@ -1479,8 +1403,7 @@ int ssh_make_milliseconds(unsigned long sec, unsigned long usec)
  * @returns 1 if timeout is elapsed
  *          0 otherwise
  */
-int ssh_timeout_elapsed(struct ssh_timestamp *ts, int timeout)
-{
+int ssh_timeout_elapsed(struct ssh_timestamp *ts, int timeout) {
     struct ssh_timestamp now;
 
     switch(timeout) {
@@ -1512,8 +1435,7 @@ int ssh_timeout_elapsed(struct ssh_timestamp *ts, int timeout)
  *             timeout
  * @returns   remaining time in milliseconds, 0 if elapsed, -1 if never.
  */
-int ssh_timeout_update(struct ssh_timestamp *ts, int timeout)
-{
+int ssh_timeout_update(struct ssh_timestamp *ts, int timeout){
   struct ssh_timestamp now;
   int ms, ret;
   if (timeout <= 0) {
@@ -1706,13 +1628,13 @@ int ssh_quote_file_name(const char *file_name, char *buf, size_t buf_len)
                 *dst++ = '\\';
                 break;
             case SINGLE_QUOTE:
-                /* Close the currently quoted string and replace '!' for unquoted
+                /* Close the current quoted string and replace '!' for unquoted
                  * "\!" */
                 *dst++ = '\'';
                 *dst++ = '\\';
                 break;
             case DOUBLE_QUOTE:
-                /* Close currently quoted string and replace  "!" for unquoted
+                /* Close current quoted string and replace  "!" for unquoted
                  * "\!" */
                 *dst++ = '"';
                 *dst++ = '\\';
@@ -1829,149 +1751,6 @@ int ssh_newline_vis(const char *string, char *buf, size_t buf_len)
     *out = '\0';
 
     return out - buf;
-}
-
-/**
- * @internal
- *
- * @brief Replaces the last 6 characters of a string from 'X' to 6 random hexdigits.
- *
- * @param[in,out]  template   Any input string with last 6 characters as 'X'.
- * @returns -1 as error when the last 6 characters of the input to be replaced are not 'X'
- * 0 otherwise.
- */
-int ssh_tmpname(char *template)
-{
-    char *tmp = NULL;
-    size_t i = 0;
-    int rc = 0;
-    uint8_t random[6];
-
-    if (template == NULL) {
-        goto err;
-    }
-
-    tmp = template + strlen(template) - 6;
-    if (tmp < template) {
-        goto err;
-    }
-
-    for (i = 0; i < 6; i++) {
-        if (tmp[i] != 'X') {
-            SSH_LOG(SSH_LOG_WARNING,
-                    "Invalid input. Last six characters of the input must be \'X\'");
-            goto err;
-        }
-    }
-
-    rc = ssh_get_random(random, 6, 0);
-    if (!rc) {
-        SSH_LOG(SSH_LOG_WARNING,
-                "Could not generate random data\n");
-        goto err;
-    }
-
-    for (i = 0; i < 6; i++) {
-        /* Limit the random[i] < 32 */
-        random[i] &= 0x1f;
-        /* For values from 0 to 9 use numbers, otherwise use letters */
-        tmp[i] = random[i] > 9 ? random[i] + 'a' - 10 : random[i] + '0';
-    }
-
-    return 0;
-
-err:
-    errno = EINVAL;
-    return -1;
-}
-
-/**
- * @internal
- *
- * @brief Finds the first occurrence of a pattern in a string and replaces it.
- *
- * @param[in]  src          Source string containing the pattern to be replaced.
- * @param[in]  pattern      Pattern to be replaced in the source string.
- *                          Note: this function replaces the first occurrence of
- *                          pattern only.
- * @param[in]  replace      String to be replaced is stored in replace.
- *
- * @returns  src_replaced a pointer that points to the replaced string.
- * NULL if allocation fails or if src is NULL. The returned memory needs to be
- * freed using ssh_string_free_char().
- *
- * @see ssh_string_free_char()
- */
-char *ssh_strreplace(const char *src, const char *pattern, const char *replace)
-{
-    char *p = NULL;
-    char *src_replaced = NULL;
-
-    if (src == NULL) {
-        return NULL;
-    }
-
-    if (pattern == NULL || replace == NULL) {
-        return strdup(src);
-    }
-
-    p = strstr(src, pattern);
-
-    if (p != NULL) {
-        size_t offset = p - src;
-        size_t pattern_len = strlen(pattern);
-        size_t replace_len = strlen(replace);
-        size_t len  = strlen(src);
-        size_t len_replaced = len + replace_len - pattern_len + 1;
-
-        src_replaced = (char *)malloc(len_replaced);
-
-        if (src_replaced == NULL) {
-            return NULL;
-        }
-
-        memset(src_replaced, 0, len_replaced);
-        memcpy(src_replaced, src, offset);
-        memcpy(src_replaced + offset, replace, replace_len);
-        memcpy(src_replaced + offset + replace_len, src + offset + pattern_len, len - offset - pattern_len);
-        return src_replaced; /* free in the caller */
-    } else {
-        return strdup(src);
-    }
-}
-
-/**
- * @internal
- *
- * @brief Processes errno into error string
- *
- * @param[in] err_num The errno value
- * @param[out] buf Pointer to a place where the string could be saved
- * @param[in] buflen The allocated size of buf
- *
- * @return error string
- */
-char *ssh_strerror(int err_num, char *buf, size_t buflen)
-{
-#if defined(__linux__) && defined(__GLIBC__) && defined(_GNU_SOURCE)
-    /* GNU extension on Linux */
-    return strerror_r(err_num, buf, buflen);
-#else
-    int rv;
-
-#if defined(_WIN32)
-    rv = strerror_s(buf, buflen, err_num);
-#else
-    /* POSIX version available for example on FreeBSD or in musl libc */
-    rv = strerror_r(err_num, buf, buflen);
-#endif /* _WIN32 */
-
-    /* make sure the buffer is initialized and terminated with NULL */
-    if (-rv == ERANGE) {
-        buf[0] = '\0';
-    }
-    return buf;
-#endif /* defined(__linux__) && defined(__GLIBC__) && defined(_GNU_SOURCE) */
 }
 
 /** @} */
