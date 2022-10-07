@@ -43,7 +43,7 @@ static int teardown(void **state)
 }
 
 static void torture_callbacks_size(void **state) {
-    struct ssh_callbacks_struct *cb = *state;;
+    struct ssh_callbacks_struct *cb = *state;
 
     assert_int_not_equal(cb->size, 0);
 }
@@ -138,6 +138,9 @@ static void torture_callbacks_execute_list(void **state){
     };
 
     (void)state;
+
+    assert_non_null(list);
+
     ssh_callbacks_init(&c1);
     ssh_callbacks_init(&c2);
     ssh_callbacks_init(&c3);
@@ -212,6 +215,8 @@ static void torture_callbacks_iterate(void **state){
     };
 
     (void)state; /* unused */
+
+    assert_non_null(list);
 
     ssh_callbacks_init(&c1);
     ssh_callbacks_init(&c2);
