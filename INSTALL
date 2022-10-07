@@ -7,8 +7,8 @@
 In order to build libssh, you need to install several components:
 
 - A C compiler
-- [CMake](https://www.cmake.org) >= 2.6.0.
-- [openssl](https://www.openssl.org) >= 0.9.8
+- [CMake](https://www.cmake.org) >= 3.3.0
+- [openssl](https://www.openssl.org) >= 1.0.1
 or
 - [gcrypt](https://www.gnu.org/directory/Security/libgcrypt.html) >= 1.4
 - [libz](https://www.zlib.net) >= 1.2
@@ -19,6 +19,7 @@ optional:
 - [nss_wrapper](https://cwrap.org/) >= 1.1.2
 - [uid_wrapper](https://cwrap.org/) >= 1.2.0
 - [pam_wrapper](https://cwrap.org/) >= 1.0.1
+- [priv_wrapper](https://cwrap.org/) >= 1.0.0
 
 Note that these version numbers are version we know works correctly. If you
 build and run libssh successfully with an older version, please let us know.
@@ -39,7 +40,7 @@ GNU/Linux, MacOS X, MSYS/MinGW:
     cmake -DUNIT_TESTING=ON -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Debug ..
     make
 
-On Windows you should choose a makefile gernerator with -G or use
+On Windows you should choose a makefile generator with -G or use
 
     cmake-gui.exe ..
 

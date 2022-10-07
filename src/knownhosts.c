@@ -58,8 +58,9 @@ static int hash_hostname(const char *name,
                          unsigned char *salt,
                          unsigned int salt_size,
                          unsigned char **hash,
-                         unsigned int *hash_size)
+                         size_t *hash_size)
 {
+    int rc;
     HMACCTX mac_ctx;
 
     mac_ctx = hmac_init(salt, salt_size, SSH_HMAC_SHA1);
@@ -67,8 +68,13 @@ static int hash_hostname(const char *name,
         return SSH_ERROR;
     }
 
-    hmac_update(mac_ctx, name, strlen(name));
-    hmac_final(mac_ctx, *hash, hash_size);
+    rc = hmac_update(mac_ctx, name, strlen(name));
+    if (rc != 1)
+        return SSH_ERROR;
+
+    rc = hmac_final(mac_ctx, *hash, hash_size);
+    if (rc != 1)
+        return SSH_ERROR;
 
     return SSH_OK;
 }
@@ -81,7 +87,7 @@ static int match_hashed_hostname(const char *host, const char *hashed_host)
     ssh_buffer hash = NULL;
     unsigned char hashed_buf[256] = {0};
     unsigned char *hashed_buf_ptr = hashed_buf;
-    unsigned int hashed_buf_size = sizeof(hashed_buf);
+    size_t hashed_buf_size = sizeof(hashed_buf);
     int cmp;
     int rc;
     int match = 0;
@@ -228,8 +234,9 @@ static int ssh_known_hosts_read_entries(const char *match,
 
     fp = fopen(filename, "r");
     if (fp == NULL) {
-        SSH_LOG(SSH_LOG_WARN, "Failed to open the known_hosts file '%s': %s",
-                filename, strerror(errno));
+        char err_msg[SSH_ERRNO_MSG_MAX] = {0};
+        SSH_LOG(SSH_LOG_TRACE, "Failed to open the known_hosts file '%s': %s",
+                filename, ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
         /* The missing file is not an error here */
         return SSH_OK;
     }
@@ -376,6 +383,7 @@ struct ssh_list *ssh_known_hosts_get_algorithms(ssh_session session)
 
     list = ssh_list_new();
     if (list == NULL) {
+        ssh_set_error_oom(session);
         SAFE_FREE(host_port);
         return NULL;
     }
@@ -472,9 +480,14 @@ static const char *ssh_known_host_sigs_from_hostkey_type(enum ssh_keytypes_e typ
         return "rsa-sha2-512,rsa-sha2-256,ssh-rsa";
     case SSH_KEYTYPE_ED25519:
         return "ssh-ed25519";
+    case SSH_KEYTYPE_SK_ED25519:
+        return "sk-ssh-ed25519@openssh.com";
 #ifdef HAVE_DSA
     case SSH_KEYTYPE_DSS:
         return "ssh-dss";
+#else
+        SSH_LOG(SSH_LOG_WARN, "DSS keys are not supported by this build");
+        break;
 #endif
 #ifdef HAVE_ECDH
     case SSH_KEYTYPE_ECDSA_P256:
@@ -483,13 +496,24 @@ static const char *ssh_known_host_sigs_from_hostkey_type(enum ssh_keytypes_e typ
         return "ecdsa-sha2-nistp384";
     case SSH_KEYTYPE_ECDSA_P521:
         return "ecdsa-sha2-nistp521";
+    case SSH_KEYTYPE_SK_ECDSA:
+        return "sk-ecdsa-sha2-nistp256@openssh.com";
+#else
+    case SSH_KEYTYPE_ECDSA_P256:
+    case SSH_KEYTYPE_ECDSA_P384:
+    case SSH_KEYTYPE_ECDSA_P521:
+        SSH_LOG(SSH_LOG_WARN, "ECDSA keys are not supported by this build");
+        break;
 #endif
     case SSH_KEYTYPE_UNKNOWN:
     default:
-        SSH_LOG(SSH_LOG_WARN, "The given type %d is not a base private key type "
-                "or is unsupported", type);
-        return NULL;
+        SSH_LOG(SSH_LOG_TRACE,
+                "The given type %d is not a base private key type "
+                "or is unsupported",
+                type);
     }
+
+    return NULL;
 }
 
 /**
@@ -571,6 +595,8 @@ char *ssh_known_hosts_get_algorithms_names(ssh_session session)
         entry = ssh_iterator_value(struct ssh_knownhosts_entry *, it);
         algo = ssh_known_host_sigs_from_hostkey_type(entry->publickey->type);
         if (algo == NULL) {
+            ssh_knownhosts_entry_free(entry);
+            ssh_list_remove(entry_list, it);
             continue;
         }
 
@@ -599,7 +625,7 @@ char *ssh_known_hosts_get_algorithms_names(ssh_session session)
 /**
  * @brief Parse a line from a known_hosts entry into a structure
  *
- * This parses an known_hosts entry into a structure with the key in a libssh
+ * This parses a known_hosts entry into a structure with the key in a libssh
  * consumeable form. You can use the PKI key function to further work with it.
  *
  * @param[in]  hostname     The hostname to match the line to
@@ -607,7 +633,7 @@ char *ssh_known_hosts_get_algorithms_names(ssh_session session)
  * @param[in]  line         The line to compare and parse if we have a hostname
  *                          match.
  *
- * @param[in]  entry        A pointer to store the the allocated known_hosts
+ * @param[in]  entry        A pointer to store the allocated known_hosts
  *                          entry structure. The user needs to free the memory
  *                          using SSH_KNOWNHOSTS_ENTRY_FREE().
  *
@@ -620,6 +646,7 @@ int ssh_known_hosts_parse_line(const char *hostname,
     struct ssh_knownhosts_entry *e = NULL;
     char *known_host = NULL;
     char *p;
+    char *save_tok = NULL;
     enum ssh_keytypes_e key_type;
     int match = 0;
     int rc = SSH_OK;
@@ -630,7 +657,7 @@ int ssh_known_hosts_parse_line(const char *hostname,
     }
 
     /* match pattern for hostname or hashed hostname */
-    p = strtok(known_host, " ");
+    p = strtok_r(known_host, " ", &save_tok);
     if (p == NULL ) {
         free(known_host);
         return SSH_ERROR;
@@ -651,14 +678,16 @@ int ssh_known_hosts_parse_line(const char *hostname,
             match = match_hashed_hostname(hostname, p);
         }
 
-        for (q = strtok(p, ",");
+        save_tok = NULL;
+
+        for (q = strtok_r(p, ",", &save_tok);
              q != NULL;
-             q = strtok(NULL, ",")) {
+             q = strtok_r(NULL, ",", &save_tok)) {
             int cmp;
 
             if (q[0] == '[' && hostname[0] != '[') {
                 /* Corner case: We have standard port so we do not have
-                 * hostname in square braces. But the patern is enclosed
+                 * hostname in square braces. But the pattern is enclosed
                  * in braces with, possibly standard or wildcard, port.
                  * We need to test against [host]:port pair here.
                  */
@@ -701,7 +730,9 @@ int ssh_known_hosts_parse_line(const char *hostname,
         goto out;
     }
 
-    p = strtok(known_host, " ");
+    save_tok = NULL;
+
+    p = strtok_r(known_host, " ", &save_tok);
     if (p == NULL ) {
         rc = SSH_ERROR;
         goto out;
@@ -714,7 +745,7 @@ int ssh_known_hosts_parse_line(const char *hostname,
     }
 
     /* pubkey type */
-    p = strtok(NULL, " ");
+    p = strtok_r(NULL, " ", &save_tok);
     if (p == NULL) {
         rc = SSH_ERROR;
         goto out;
@@ -722,13 +753,13 @@ int ssh_known_hosts_parse_line(const char *hostname,
 
     key_type = ssh_key_type_from_name(p);
     if (key_type == SSH_KEYTYPE_UNKNOWN) {
-        SSH_LOG(SSH_LOG_WARN, "key type '%s' unknown!", p);
+        SSH_LOG(SSH_LOG_TRACE, "key type '%s' unknown!", p);
         rc = SSH_ERROR;
         goto out;
     }
 
     /* public key */
-    p = strtok(NULL, " ");
+    p = strtok_r(NULL, " ", &save_tok);
     if (p == NULL) {
         rc = SSH_ERROR;
         goto out;
@@ -738,7 +769,7 @@ int ssh_known_hosts_parse_line(const char *hostname,
                                       key_type,
                                       &e->publickey);
     if (rc != SSH_OK) {
-        SSH_LOG(SSH_LOG_WARN,
+        SSH_LOG(SSH_LOG_TRACE,
                 "Failed to parse %s key for entry: %s!",
                 ssh_key_type_to_char(key_type),
                 e->unparsed);
@@ -746,7 +777,7 @@ int ssh_known_hosts_parse_line(const char *hostname,
     }
 
     /* comment */
-    p = strtok(NULL, " ");
+    p = strtok_r(NULL, " ", &save_tok);
     if (p != NULL) {
         p = strstr(line, p);
         if (p != NULL) {
@@ -769,12 +800,12 @@ out:
 }
 
 /**
- * @brief Check if the set hostname and port matches an entry in known_hosts.
+ * @brief Check if the set hostname and port match an entry in known_hosts.
  *
- * This check if the set hostname and port has an entry in the known_hosts file.
+ * This check if the set hostname and port have an entry in the known_hosts file.
  * You need to set at least the hostname using ssh_options_set().
  *
- * @param[in]  session  The session with with the values set to check.
+ * @param[in]  session  The session with the values set to check.
  *
  * @return A ssh_known_hosts_e return value.
  */
@@ -809,7 +840,7 @@ enum ssh_known_hosts_e ssh_session_has_known_hosts_entry(ssh_session session)
     if (session->opts.knownhosts != NULL) {
         known_hosts_found = ssh_file_readaccess_ok(session->opts.knownhosts);
         if (!known_hosts_found) {
-            SSH_LOG(SSH_LOG_WARN, "Cannot access file %s",
+            SSH_LOG(SSH_LOG_TRACE, "Cannot access file %s",
                     session->opts.knownhosts);
         }
     }
@@ -818,7 +849,7 @@ enum ssh_known_hosts_e ssh_session_has_known_hosts_entry(ssh_session session)
         global_known_hosts_found =
                 ssh_file_readaccess_ok(session->opts.global_knownhosts);
         if (!global_known_hosts_found) {
-            SSH_LOG(SSH_LOG_WARN, "Cannot access file %s",
+            SSH_LOG(SSH_LOG_TRACE, "Cannot access file %s",
                     session->opts.global_knownhosts);
         }
     }
@@ -887,11 +918,11 @@ enum ssh_known_hosts_e ssh_session_has_known_hosts_entry(ssh_session session)
  *
  * @param[in]  session  The session with information to export.
  *
- * @param[in]  pentry_string A pointer to a string to store the alloocated
+ * @param[in]  pentry_string A pointer to a string to store the allocated
  *                           line of the entry. The user must free it using
  *                           ssh_string_free_char().
  *
- * @return SSH_OK on succcess, SSH_ERROR otherwise.
+ * @return SSH_OK on success, SSH_ERROR otherwise.
  */
 int ssh_session_export_known_hosts_entry(ssh_session session,
                                          char **pentry_string)
@@ -956,7 +987,7 @@ int ssh_session_export_known_hosts_entry(ssh_session session,
 }
 
 /**
- * @brief Add the current connected server to the user known_hosts file.
+ * @brief Adds the currently connected server to the user known_hosts file.
  *
  * This adds the currently connected server to the known_hosts file by
  * appending a new line at the end. The global known_hosts file is considered
@@ -974,6 +1005,7 @@ int ssh_session_update_known_hosts(ssh_session session)
     size_t nwritten;
     size_t len;
     int rc;
+    char err_msg[SSH_ERRNO_MSG_MAX] = {0};
 
     if (session->opts.knownhosts == NULL) {
         rc = ssh_options_apply(session);
@@ -989,7 +1021,8 @@ int ssh_session_update_known_hosts(ssh_session session)
         if (errno == ENOENT) {
             dir = ssh_dirname(session->opts.knownhosts);
             if (dir == NULL) {
-                ssh_set_error(session, SSH_FATAL, "%s", strerror(errno));
+                ssh_set_error(session, SSH_FATAL, "%s",
+                              ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
                 return SSH_ERROR;
             }
 
@@ -997,7 +1030,8 @@ int ssh_session_update_known_hosts(ssh_session session)
             if (rc < 0) {
                 ssh_set_error(session, SSH_FATAL,
                               "Cannot create %s directory: %s",
-                              dir, strerror(errno));
+                              dir,
+                              ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
                 SAFE_FREE(dir);
                 return SSH_ERROR;
             }
@@ -1009,7 +1043,8 @@ int ssh_session_update_known_hosts(ssh_session session)
                 ssh_set_error(session, SSH_FATAL,
                               "Couldn't open known_hosts file %s"
                               " for appending: %s",
-                              session->opts.knownhosts, strerror(errno));
+                              session->opts.knownhosts,
+                              ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
                 return SSH_ERROR;
             }
         } else {
@@ -1032,7 +1067,8 @@ int ssh_session_update_known_hosts(ssh_session session)
     if (nwritten != len || ferror(fp)) {
         ssh_set_error(session, SSH_FATAL,
                       "Couldn't append to known_hosts file %s: %s",
-                      session->opts.knownhosts, strerror(errno));
+                      session->opts.knownhosts,
+                      ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
         fclose(fp);
         return SSH_ERROR;
     }
@@ -1107,7 +1143,7 @@ ssh_known_hosts_check_server_key(const char *hosts_entry,
 }
 
 /**
- * @brief Get the known_hosts entry for the current connected session.
+ * @brief Get the known_hosts entry for the currently connected session.
  *
  * @param[in]  session  The session to validate.
  *
@@ -1126,7 +1162,7 @@ ssh_known_hosts_check_server_key(const char *hosts_entry,
  *          SSH_KNOWN_HOSTS_NOT_FOUND: The known host file does not exist. The
  *                                     host is thus unknown. File will be
  *                                     created if host key is accepted.\n
- *          SSH_KNOWN_HOSTS_ERROR:     There had been an eror checking the host.
+ *          SSH_KNOWN_HOSTS_ERROR:     There had been an error checking the host.
  *
  * @see ssh_knownhosts_entry_free()
  */
@@ -1195,7 +1231,7 @@ ssh_session_get_known_hosts_entry(ssh_session session,
  *          SSH_KNOWN_HOSTS_NOT_FOUND: The known host file does not exist. The
  *                                     host is thus unknown. File will be
  *                                     created if host key is accepted.\n
- *          SSH_KNOWN_HOSTS_ERROR:     There had been an eror checking the host.
+ *          SSH_KNOWN_HOSTS_ERROR:     There had been an error checking the host.
  *
  * @see ssh_knownhosts_entry_free()
  */

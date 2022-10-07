@@ -38,6 +38,10 @@
 #include <fcntl.h>
 #include <pwd.h>
 
+#define KEX_RETRY 32
+
+static uint64_t bytes = 2048; /* 2KB (more than the authentication phase) */
+
 static int sshd_setup(void **state)
 {
     torture_setup_sshd_server(state, false);
@@ -153,7 +157,6 @@ static void torture_rekey_send(void **state)
     int rc;
     char data[256];
     unsigned int i;
-    uint64_t bytes = 2048; /* 2KB (more than the authentication phase) */
     struct ssh_crypto_struct *c = NULL;
     unsigned char *secret_hash = NULL;
 
@@ -169,7 +172,7 @@ static void torture_rekey_send(void **state)
                      bytes / c->in_cipher->blocksize);
     assert_int_equal(c->out_cipher->max_blocks,
                      bytes / c->out_cipher->blocksize);
-    /* We should have less encrypted packets than transfered (first are not encrypted) */
+    /* We should have less encrypted packets than transferred (first are not encrypted) */
     assert_true(c->out_cipher->packets < s->ssh.session->send_seq);
     assert_true(c->in_cipher->packets < s->ssh.session->recv_seq);
     /* Copy the initial secret hash = session_id so we know we changed keys later */
@@ -234,8 +237,6 @@ static void session_setup_sftp(void **state)
     assert_non_null(s->ssh.tsftp);
 }
 
-uint64_t bytes = 2048; /* 2KB */
-
 static int session_setup_sftp_client(void **state)
 {
     struct torture_state *s = *state;
@@ -269,12 +270,14 @@ static void torture_rekey_recv(void **state)
     int fd;
     sftp_file file;
     mode_t mask;
+    int rc;
 
     /* The blocks limit is set correctly */
     c = s->ssh.session->current_crypto;
+    assert_non_null(c);
     assert_int_equal(c->in_cipher->max_blocks, bytes / c->in_cipher->blocksize);
     assert_int_equal(c->out_cipher->max_blocks, bytes / c->out_cipher->blocksize);
-    /* We should have less encrypted packets than transfered (first are not encrypted) */
+    /* We should have less encrypted packets than transferred (first are not encrypted) */
     assert_true(c->out_cipher->packets < s->ssh.session->send_seq);
     assert_true(c->in_cipher->packets < s->ssh.session->recv_seq);
     /* Copy the initial secret hash = session_id so we know we changed keys later */
@@ -302,6 +305,8 @@ static void torture_rekey_recv(void **state)
         assert_int_equal(byteswritten, bytesread);
     }
 
+    rc = sftp_close(file);
+    assert_int_equal(rc, SSH_NO_ERROR);
     close(fd);
 
     /* The rekey limit was restored in the new crypto to the same value */
@@ -439,6 +444,165 @@ static void torture_rekey_server_send(void **state)
     ssh_disconnect(s->ssh.session);
 }
 
+static void torture_rekey_different_kex(void **state)
+{
+    struct torture_state *s = *state;
+    int rc;
+    char data[256];
+    unsigned int i;
+    struct ssh_crypto_struct *c = NULL;
+    unsigned char *secret_hash = NULL;
+    size_t secret_hash_len = 0;
+    const char *kex1 = "diffie-hellman-group14-sha256,curve25519-sha256,ecdh-sha2-nistp256";
+    const char *kex2 = "diffie-hellman-group18-sha512,diffie-hellman-group16-sha512,ecdh-sha2-nistp521";
+
+    /* Use short digest for initial key exchange */
+    rc = ssh_options_set(s->ssh.session, SSH_OPTIONS_KEY_EXCHANGE, kex1);
+    assert_ssh_return_code(s->ssh.session, rc);
+
+    rc = ssh_options_set(s->ssh.session, SSH_OPTIONS_REKEY_DATA, &bytes);
+    assert_ssh_return_code(s->ssh.session, rc);
+
+    rc = ssh_connect(s->ssh.session);
+    assert_ssh_return_code(s->ssh.session, rc);
+
+    /* The blocks limit is set correctly */
+    c = s->ssh.session->current_crypto;
+    assert_int_equal(c->in_cipher->max_blocks,
+                     bytes / c->in_cipher->blocksize);
+    assert_int_equal(c->out_cipher->max_blocks,
+                     bytes / c->out_cipher->blocksize);
+    /* We should have less encrypted packets than transferred (first are not encrypted) */
+    assert_true(c->out_cipher->packets < s->ssh.session->send_seq);
+    assert_true(c->in_cipher->packets < s->ssh.session->recv_seq);
+    /* Copy the initial secret hash = session_id so we know we changed keys later */
+    secret_hash = malloc(c->digest_len);
+    assert_non_null(secret_hash);
+    memcpy(secret_hash, c->secret_hash, c->digest_len);
+    secret_hash_len = c->digest_len;
+    assert_int_equal(secret_hash_len, 32); /* SHA256 len */
+
+    /* OpenSSH can not rekey before authentication so authenticate here */
+    rc = ssh_userauth_none(s->ssh.session, NULL);
+    /* This request should return a SSH_REQUEST_DENIED error */
+    if (rc == SSH_ERROR) {
+        assert_int_equal(ssh_get_error_code(s->ssh.session), SSH_REQUEST_DENIED);
+    }
+    rc = ssh_userauth_list(s->ssh.session, NULL);
+    assert_true(rc & SSH_AUTH_METHOD_PUBLICKEY);
+
+    rc = ssh_userauth_publickey_auto(s->ssh.session, NULL, NULL);
+    assert_int_equal(rc, SSH_AUTH_SUCCESS);
+
+    /* Now try to change preference of key exchange algorithm to something with larger digest */
+    rc = ssh_options_set(s->ssh.session, SSH_OPTIONS_KEY_EXCHANGE, kex2);
+    assert_ssh_return_code(s->ssh.session, rc);
+
+    /* send ignore packets of up to 1KB to trigger rekey. Send little bit more
+     * to make sure the rekey it completes with all different ciphers (paddings */
+    memset(data, 0, sizeof(data));
+    memset(data, 'A', 128);
+    for (i = 0; i < KEX_RETRY; i++) {
+        ssh_send_ignore(s->ssh.session, data);
+        ssh_handle_packets(s->ssh.session, 100);
+
+        c = s->ssh.session->current_crypto;
+        /* SHA256 len */
+        if (c->digest_len != 32) {
+            break;
+        }
+    }
+
+    /* The rekey limit was restored in the new crypto to the same value */
+    c = s->ssh.session->current_crypto;
+    assert_int_equal(c->in_cipher->max_blocks, bytes / c->in_cipher->blocksize);
+    assert_int_equal(c->out_cipher->max_blocks, bytes / c->out_cipher->blocksize);
+    /* Check that the secret hash is different than initially */
+    assert_int_equal(c->digest_len, 64); /* SHA512 len */
+    assert_memory_not_equal(secret_hash, c->secret_hash, secret_hash_len);
+    /* Session ID stays same after one rekey */
+    assert_memory_equal(secret_hash, c->session_id, secret_hash_len);
+    free(secret_hash);
+
+    assert_int_equal(ssh_is_connected(s->ssh.session), 1);
+    assert_int_equal(s->ssh.session->session_state, SSH_SESSION_STATE_AUTHENTICATED);
+
+    ssh_disconnect(s->ssh.session);
+}
+
+static void torture_rekey_server_different_kex(void **state)
+{
+    struct torture_state *s = *state;
+    int rc;
+    char data[256];
+    unsigned int i;
+    struct ssh_crypto_struct *c = NULL;
+    unsigned char *secret_hash = NULL;
+    size_t secret_hash_len = 0;
+    const char *sshd_config = "RekeyLimit 2K none";
+    const char *kex1 = "diffie-hellman-group14-sha256,curve25519-sha256,ecdh-sha2-nistp256";
+    const char *kex2 = "diffie-hellman-group18-sha512,diffie-hellman-group16-sha512";
+
+    /* Use short digest for initial key exchange */
+    rc = ssh_options_set(s->ssh.session, SSH_OPTIONS_KEY_EXCHANGE, kex1);
+    assert_ssh_return_code(s->ssh.session, rc);
+
+    torture_update_sshd_config(state, sshd_config);
+
+    rc = ssh_connect(s->ssh.session);
+    assert_ssh_return_code(s->ssh.session, rc);
+
+    /* Copy the initial secret hash = session_id so we know we changed keys later */
+    c = s->ssh.session->current_crypto;
+    secret_hash = malloc(c->digest_len);
+    assert_non_null(secret_hash);
+    memcpy(secret_hash, c->secret_hash, c->digest_len);
+    secret_hash_len = c->digest_len;
+    assert_int_equal(secret_hash_len, 32); /* SHA256 len */
+
+    /* OpenSSH can not rekey before authentication so authenticate here */
+    rc = ssh_userauth_none(s->ssh.session, NULL);
+    /* This request should return a SSH_REQUEST_DENIED error */
+    if (rc == SSH_ERROR) {
+        assert_int_equal(ssh_get_error_code(s->ssh.session), SSH_REQUEST_DENIED);
+    }
+    rc = ssh_userauth_list(s->ssh.session, NULL);
+    assert_true(rc & SSH_AUTH_METHOD_PUBLICKEY);
+
+    rc = ssh_userauth_publickey_auto(s->ssh.session, NULL, NULL);
+    assert_int_equal(rc, SSH_AUTH_SUCCESS);
+
+    /* Now try to change preference of key exchange algorithm to something with larger digest */
+    rc = ssh_options_set(s->ssh.session, SSH_OPTIONS_KEY_EXCHANGE, kex2);
+    assert_ssh_return_code(s->ssh.session, rc);
+
+    /* send ignore packets of up to 1KB to trigger rekey. Send little bit more
+     * to make sure the rekey it completes with all different ciphers (paddings */
+    memset(data, 0, sizeof(data));
+    memset(data, 'A', 128);
+    for (i = 0; i < KEX_RETRY; i++) {
+        ssh_send_ignore(s->ssh.session, data);
+        ssh_handle_packets(s->ssh.session, 100);
+
+        c = s->ssh.session->current_crypto;
+        /* SHA256 len */
+        if (c->digest_len != 32) {
+            break;
+        }
+    }
+
+    /* Check that the secret hash is different than initially */
+    c = s->ssh.session->current_crypto;
+    assert_int_equal(c->digest_len, 64); /* SHA512 len */
+    assert_memory_not_equal(secret_hash, c->secret_hash, secret_hash_len);
+    /* Session ID stays same after one rekey */
+    assert_memory_equal(secret_hash, c->session_id, secret_hash_len);
+    free(secret_hash);
+
+    ssh_disconnect(s->ssh.session);
+}
+
+
 #ifdef WITH_SFTP
 static int session_setup_sftp_server(void **state)
 {
@@ -465,6 +629,7 @@ static void torture_rekey_server_recv(void **state)
     int fd;
     sftp_file file;
     mode_t mask;
+    int rc;
 
     /* Copy the initial secret hash = session_id so we know we changed keys later */
     c = s->ssh.session->current_crypto;
@@ -492,6 +657,8 @@ static void torture_rekey_server_recv(void **state)
         assert_int_equal(byteswritten, bytesread);
     }
 
+    rc = sftp_close(file);
+    assert_int_equal(rc, SSH_NO_ERROR);
     close(fd);
 
     /* Check that the secret hash is different than initially */
@@ -504,6 +671,78 @@ static void torture_rekey_server_recv(void **state)
 }
 #endif /* WITH_SFTP */
 
+#ifdef WITH_ZLIB
+/* This is disabled by OpenSSH since OpenSSH 7.4p1 */
+#if (OPENSSH_VERSION_MAJOR == 7 && OPENSSH_VERSION_MINOR < 4) || OPENSSH_VERSION_MAJOR < 7
+/* Compression can be funky to get right after rekey
+ */
+static void torture_rekey_send_compression(void **state)
+{
+    struct torture_state *s = *state;
+    const char *comp = "zlib";
+    int rc;
+
+    rc = ssh_options_set(s->ssh.session, SSH_OPTIONS_COMPRESSION_C_S, comp);
+    assert_ssh_return_code(s->ssh.session, rc);
+
+    rc = ssh_options_set(s->ssh.session, SSH_OPTIONS_COMPRESSION_S_C, comp);
+    assert_ssh_return_code(s->ssh.session, rc);
+
+    torture_rekey_send(state);
+}
+
+#ifdef WITH_SFTP
+static void torture_rekey_recv_compression(void **state)
+{
+    struct torture_state *s = *state;
+    const char *comp = "zlib";
+    int rc;
+
+    rc = ssh_options_set(s->ssh.session, SSH_OPTIONS_COMPRESSION_C_S, comp);
+    assert_ssh_return_code(s->ssh.session, rc);
+
+    rc = ssh_options_set(s->ssh.session, SSH_OPTIONS_COMPRESSION_S_C, comp);
+    assert_ssh_return_code(s->ssh.session, rc);
+
+    torture_rekey_recv(state);
+}
+#endif /* WITH_SFTP */
+#endif
+
+/* Especially the delayed compression by openssh.
+ */
+static void torture_rekey_send_compression_delayed(void **state)
+{
+    struct torture_state *s = *state;
+    const char *comp = "zlib@openssh.com";
+    int rc;
+
+    rc = ssh_options_set(s->ssh.session, SSH_OPTIONS_COMPRESSION_C_S, comp);
+    assert_ssh_return_code(s->ssh.session, rc);
+
+    rc = ssh_options_set(s->ssh.session, SSH_OPTIONS_COMPRESSION_S_C, comp);
+    assert_ssh_return_code(s->ssh.session, rc);
+
+    torture_rekey_send(state);
+}
+
+#ifdef WITH_SFTP
+static void torture_rekey_recv_compression_delayed(void **state)
+{
+    struct torture_state *s = *state;
+    const char *comp = "zlib@openssh.com";
+    int rc;
+
+    rc = ssh_options_set(s->ssh.session, SSH_OPTIONS_COMPRESSION_C_S, comp);
+    assert_ssh_return_code(s->ssh.session, rc);
+
+    rc = ssh_options_set(s->ssh.session, SSH_OPTIONS_COMPRESSION_S_C, comp);
+    assert_ssh_return_code(s->ssh.session, rc);
+
+    torture_rekey_recv(state);
+}
+#endif /* WITH_SFTP */
+#endif /* WITH_ZLIB */
 
 int torture_run_tests(void) {
     int rc;
@@ -522,6 +761,9 @@ int torture_run_tests(void) {
         cmocka_unit_test_setup_teardown(torture_rekey_send,
                                         session_setup,
                                         session_teardown),
+        cmocka_unit_test_setup_teardown(torture_rekey_different_kex,
+                                        session_setup,
+                                        session_teardown),
         /* Note, that this modifies the sshd_config */
         cmocka_unit_test_setup_teardown(torture_rekey_server_send,
                                         session_setup,
@@ -531,6 +773,29 @@ int torture_run_tests(void) {
                                         session_setup_sftp_server,
                                         session_teardown),
 #endif /* WITH_SFTP */
+        cmocka_unit_test_setup_teardown(torture_rekey_server_different_kex,
+                                        session_setup,
+                                        session_teardown),
+#ifdef WITH_ZLIB
+#if (OPENSSH_VERSION_MAJOR == 7 && OPENSSH_VERSION_MINOR < 4) || OPENSSH_VERSION_MAJOR < 7
+        cmocka_unit_test_setup_teardown(torture_rekey_send_compression,
+                                        session_setup,
+                                        session_teardown),
+#ifdef WITH_SFTP
+        cmocka_unit_test_setup_teardown(torture_rekey_recv_compression,
+                                        session_setup_sftp_client,
+                                        session_teardown),
+#endif /* WITH_SFTP */
+#endif
+        cmocka_unit_test_setup_teardown(torture_rekey_send_compression_delayed,
+                                        session_setup,
+                                        session_teardown),
+#ifdef WITH_SFTP
+        cmocka_unit_test_setup_teardown(torture_rekey_recv_compression_delayed,
+                                        session_setup_sftp_client,
+                                        session_teardown),
+#endif /* WITH_SFTP */
+#endif /* WITH_ZLIB */
         /* TODO verify the two rekey are possible and the states are not broken after rekey */
     };
 

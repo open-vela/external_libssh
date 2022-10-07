@@ -160,7 +160,8 @@ int server_set_kex(ssh_session session)
 
     rc = ssh_options_set_algo(session,
                               SSH_HOSTKEYS,
-                              kept);
+                              kept,
+                              &session->opts.wanted_methods[SSH_HOSTKEYS]);
     SAFE_FREE(kept);
     if (rc < 0) {
         return -1;
@@ -348,7 +349,7 @@ static void ssh_server_connection_callback(ssh_session session){
                 goto error;
             }
             set_status(session, 0.4f);
-            SSH_LOG(SSH_LOG_PROTOCOL,
+            SSH_LOG(SSH_LOG_DEBUG,
                     "SSH client banner: %s", session->clientbanner);
 
             /* Here we analyze the different protocols the server allows. */
@@ -361,7 +362,6 @@ static void ssh_server_connection_callback(ssh_session session){
             }
 
             /* from now, the packet layer is handling incoming packets */
-            session->socket_callbacks.data=ssh_packet_socket_callback;
             ssh_packet_register_socket_callback(session, session->socket);
 
             ssh_packet_set_default_callbacks(session);
@@ -459,12 +459,12 @@ error:
  * @param  user is a pointer to session
  * @returns Number of bytes processed, or zero if the banner is not complete.
  */
-static int callback_receive_banner(const void *data, size_t len, void *user) {
+static size_t callback_receive_banner(const void *data, size_t len, void *user) {
     char *buffer = (char *) data;
     ssh_session session = (ssh_session) user;
     char *str = NULL;
     size_t i;
-    int ret=0;
+    size_t processed = 0;
 
     for (i = 0; i < len; i++) {
 #ifdef WITH_PCAP
@@ -485,13 +485,13 @@ static int callback_receive_banner(const void *data, size_t len, void *user) {
 
             str = strdup(buffer);
             /* number of bytes read */
-            ret = i + 1;
+            processed = i + 1;
             session->clientbanner = str;
             session->session_state = SSH_SESSION_STATE_BANNER_RECEIVED;
             SSH_LOG(SSH_LOG_PACKET, "Received banner: %s", str);
             session->ssh_connection_callback(session);
 
-            return ret;
+            return processed;
         }
 
         if(i > 127) {
@@ -503,7 +503,7 @@ static int callback_receive_banner(const void *data, size_t len, void *user) {
         }
     }
 
-    return ret;
+    return processed;
 }
 
 /* returns 0 until the key exchange is not finished */
@@ -522,6 +522,31 @@ void ssh_set_auth_methods(ssh_session session, int auth_methods)
 {
     /* accept only methods in range */
     session->auth.supported_methods = (uint32_t)auth_methods & 0x3fU;
+}
+
+int ssh_send_issue_banner(ssh_session session, const ssh_string banner)
+{
+    int rc = SSH_ERROR;
+
+    if (session == NULL) {
+        return SSH_ERROR;
+    }
+
+    SSH_LOG(SSH_LOG_PACKET,
+            "Sending a server issue banner");
+
+    rc = ssh_buffer_pack(session->out_buffer,
+                         "bSs",
+                         SSH2_MSG_USERAUTH_BANNER,
+                         banner,
+                         "");
+    if (rc != SSH_OK) {
+        ssh_set_error_oom(session);
+        return SSH_ERROR;
+    }
+
+    rc = ssh_packet_send(session);
+    return rc;
 }
 
 /* Do the banner and key exchange */
@@ -648,7 +673,7 @@ static int ssh_message_channel_request_reply_default(ssh_message msg) {
     channel = msg->channel_request.channel->remote_channel;
 
     SSH_LOG(SSH_LOG_PACKET,
-        "Sending a default channel_request denied to channel %"PRId32, channel);
+        "Sending a default channel_request denied to channel %" PRIu32, channel);
 
     rc = ssh_buffer_pack(msg->session->out_buffer,
                          "bd",
@@ -672,6 +697,13 @@ static int ssh_message_service_request_reply_default(ssh_message msg) {
   return ssh_message_service_reply_success(msg);
 }
 
+/**
+ * @brief   Sends SERVICE_ACCEPT to the client
+ *
+ * @param msg The message to reply to
+ *
+ * @returns SSH_OK when success otherwise SSH_ERROR
+ */
 int ssh_message_service_reply_success(ssh_message msg) {
     ssh_session session;
     int rc;
@@ -707,7 +739,7 @@ int ssh_message_global_request_reply_success(ssh_message msg, uint16_t bound_por
             goto error;
         }
 
-        if(msg->global_request.type == SSH_GLOBAL_REQUEST_TCPIP_FORWARD 
+        if(msg->global_request.type == SSH_GLOBAL_REQUEST_TCPIP_FORWARD
                                 && msg->global_request.bind_port == 0) {
             rc = ssh_buffer_pack(msg->session->out_buffer, "d", bound_port);
             if (rc != SSH_OK) {
@@ -719,7 +751,7 @@ int ssh_message_global_request_reply_success(ssh_message msg, uint16_t bound_por
         return ssh_packet_send(msg->session);
     }
 
-    if(msg->global_request.type == SSH_GLOBAL_REQUEST_TCPIP_FORWARD 
+    if(msg->global_request.type == SSH_GLOBAL_REQUEST_TCPIP_FORWARD
                                 && msg->global_request.bind_port == 0) {
         SSH_LOG(SSH_LOG_PACKET,
                 "The client doesn't want to know the remote port!");
@@ -774,6 +806,13 @@ int ssh_message_reply_default(ssh_message msg) {
   return -1;
 }
 
+/**
+ * @brief Gets the service name from the service request message
+ *
+ * @param msg The service request message
+ *
+ * @returns the service name from the message
+ */
 const char *ssh_message_service_service(ssh_message msg){
   if (msg == NULL) {
     return NULL;
@@ -814,6 +853,13 @@ ssh_public_key ssh_message_auth_publickey(ssh_message msg){
   return ssh_pki_convert_key_to_publickey(msg->auth_request.pubkey);
 }
 
+/**
+ * @brief Get the state of the public key authentication process
+ *
+ * @param msg   The message
+ *
+ * @returns state of the authentication
+ */
 enum ssh_publickey_state_e ssh_message_auth_publickey_state(ssh_message msg){
 	if (msg == NULL) {
 	    return -1;
@@ -884,9 +930,8 @@ int ssh_message_auth_interactive_request(ssh_message msg, const char *name,
 
   /* fill in the kbdint structure */
   if (msg->session->kbdint == NULL) {
-    SSH_LOG(SSH_LOG_PROTOCOL, "Warning: Got a "
-                                        "keyboard-interactive response but it "
-                                        "seems we didn't send the request.");
+    SSH_LOG(SSH_LOG_DEBUG, "Warning: Got a keyboard-interactive response "
+                           "but it seems we didn't send the request.");
 
     msg->session->kbdint = ssh_kbdint_new();
     if (msg->session->kbdint == NULL) {
@@ -981,13 +1026,13 @@ int ssh_auth_reply_success(ssh_session session, int partial)
 
     crypto = ssh_packet_get_current_crypto(session, SSH_DIRECTION_OUT);
     if (crypto != NULL && crypto->delayed_compress_out) {
-        SSH_LOG(SSH_LOG_PROTOCOL, "Enabling delayed compression OUT");
+        SSH_LOG(SSH_LOG_DEBUG, "Enabling delayed compression OUT");
         crypto->do_compress_out = 1;
     }
 
     crypto = ssh_packet_get_current_crypto(session, SSH_DIRECTION_IN);
     if (crypto != NULL && crypto->delayed_compress_in) {
-        SSH_LOG(SSH_LOG_PROTOCOL, "Enabling delayed compression IN");
+        SSH_LOG(SSH_LOG_DEBUG, "Enabling delayed compression IN");
         crypto->do_compress_in = 1;
     }
     return r;
@@ -1025,7 +1070,7 @@ int ssh_message_auth_reply_pk_ok_simple(ssh_message msg) {
     ssh_string pubkey_blob = NULL;
     int ret;
 
-    algo = ssh_string_from_char(msg->auth_request.pubkey->type_c);
+    algo = ssh_string_from_char(msg->auth_request.sigtype);
     if (algo == NULL) {
         return SSH_ERROR;
     }
@@ -1170,6 +1215,13 @@ int ssh_execute_message_callbacks(ssh_session session){
   return SSH_OK;
 }
 
+/**
+ * @brief Sends a keepalive message to the session
+ *
+ * @param The session to send the message to
+ *
+ * @returns SSH_OK
+ */
 int ssh_send_keepalive(ssh_session session)
 {
     /* Client denies the request, so the error code is not meaningful */
