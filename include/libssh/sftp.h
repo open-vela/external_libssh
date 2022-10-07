@@ -258,7 +258,7 @@ LIBSSH_API int sftp_init(sftp_session sftp);
  * @param sftp          The sftp session where the error is saved.
  *
  * @return              The saved error (see server responses), < 0 if an error
- *                      in the function occured.
+ *                      in the function occurred.
  *
  * @see Server responses
  */
@@ -413,7 +413,7 @@ LIBSSH_API void sftp_attributes_free(sftp_attributes file);
  *
  * @param dir           The sftp directory handle to close.
  *
- * @return              Returns SSH_NO_ERROR or SSH_ERROR if an error occured.
+ * @return              Returns SSH_NO_ERROR or SSH_ERROR if an error occurred.
  */
 LIBSSH_API int sftp_closedir(sftp_dir dir);
 
@@ -422,7 +422,7 @@ LIBSSH_API int sftp_closedir(sftp_dir dir);
  *
  * @param file          The open sftp file handle to close.
  *
- * @return              Returns SSH_NO_ERROR or SSH_ERROR if an error occured.
+ * @return              Returns SSH_NO_ERROR or SSH_ERROR if an error occurred.
  *
  * @see                 sftp_open()
  */
@@ -478,7 +478,7 @@ LIBSSH_API void sftp_file_set_blocking(sftp_file handle);
  *
  * @param file          The opened sftp file handle to be read from.
  *
- * @param buf           Pointer to buffer to recieve read data.
+ * @param buf           Pointer to buffer to receive read data.
  *
  * @param count         Size of the buffer in bytes.
  *
@@ -527,7 +527,7 @@ LIBSSH_API int sftp_async_read_begin(sftp_file file, uint32_t len);
  *
  * @param file          The opened sftp file handle to be read from.
  *
- * @param data          Pointer to buffer to recieve read data.
+ * @param data          Pointer to buffer to receive read data.
  *
  * @param len           Size of the buffer in bytes. It should be bigger or
  *                      equal to the length parameter of the
@@ -537,7 +537,7 @@ LIBSSH_API int sftp_async_read_begin(sftp_file file, uint32_t len);
  *                      function.
  *
  * @return              Number of bytes read, 0 on EOF, SSH_ERROR if an error
- *                      occured, SSH_AGAIN if the file is opened in nonblocking
+ *                      occurred, SSH_AGAIN if the file is opened in nonblocking
  *                      mode and the request hasn't been executed yet.
  *
  * @warning             A call to this function with an invalid identifier
@@ -632,7 +632,7 @@ LIBSSH_API void sftp_rewind(sftp_file file);
 LIBSSH_API int sftp_unlink(sftp_session sftp, const char *file);
 
 /**
- * @brief Remove a directoy.
+ * @brief Remove a directory.
  *
  * @param sftp          The sftp session handle.
  *
@@ -680,6 +680,11 @@ LIBSSH_API int sftp_rename(sftp_session sftp, const char *original, const  char 
 
 /**
  * @brief Set file attributes on a file, directory or symbolic link.
+ *
+ * Note, that this function can only set time values using 32 bit values due to
+ * the restrictions in the SFTP protocol version 3 implemented by libssh.
+ * The support for 64 bit time values was introduced in SFTP version 5, which is
+ * not implemented by libssh nor any major SFTP servers.
  *
  * @param sftp          The sftp session handle.
  *
@@ -767,6 +772,8 @@ LIBSSH_API int sftp_symlink(sftp_session sftp, const char *target, const char *d
  * @param  path         Specifies the path name of the symlink to be read.
  *
  * @return              The target of the link, NULL on error.
+ *                      The caller needs to free the memory
+ *                      using ssh_string_free_char().
  *
  * @see sftp_get_error()
  */
@@ -806,7 +813,7 @@ LIBSSH_API void sftp_statvfs_free(sftp_statvfs_t statvfs_o);
 /**
  * @brief Synchronize a file's in-core state with storage device
  *
- * This calls the "fsync@openssh.com" extention. You should check if the
+ * This calls the "fsync@openssh.com" extension. You should check if the
  * extensions is supported using:
  *
  * @code
@@ -854,7 +861,7 @@ LIBSSH_API int sftp_server_version(sftp_session sftp);
 LIBSSH_API sftp_session sftp_server_new(ssh_session session, ssh_channel chan);
 
 /**
- * @brief Intialize the sftp server.
+ * @brief Initialize the sftp server.
  *
  * @param sftp         The sftp session to init.
  *

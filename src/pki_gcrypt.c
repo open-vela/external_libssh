@@ -283,6 +283,23 @@ static int passphrase_to_key(char *data, unsigned int datalen,
   return 0;
 }
 
+void pki_key_clean(ssh_key key)
+{
+    if (key == NULL)
+        return;
+
+    if (key->dsa)
+        gcry_sexp_release(key->dsa);
+    if (key->rsa)
+        gcry_sexp_release(key->rsa);
+    if (key->ecdsa)
+        gcry_sexp_release(key->ecdsa);
+
+    key->dsa = NULL;
+    key->rsa = NULL;
+    key->ecdsa = NULL;
+}
+
 static int privatekey_decrypt(int algo, int mode, unsigned int key_len,
                        unsigned char *iv, unsigned int iv_len,
                        ssh_buffer data, ssh_auth_callback cb,
@@ -938,7 +955,7 @@ ssh_string pki_private_key_to_pem(const ssh_key key,
     (void) auth_fn;
     (void) auth_data;
 
-    SSH_LOG(SSH_LOG_WARN, "PEM export not supported by gcrypt backend!");
+    SSH_LOG(SSH_LOG_TRACE, "PEM export not supported by gcrypt backend!");
 
     return NULL;
 }
@@ -957,7 +974,7 @@ ssh_key pki_private_key_from_base64(const char *b64_key,
 
     type = pki_privatekey_type_from_string(b64_key);
     if (type == SSH_KEYTYPE_UNKNOWN) {
-        SSH_LOG(SSH_LOG_WARN, "Unknown or invalid private key.");
+        SSH_LOG(SSH_LOG_TRACE, "Unknown or invalid private key.");
         return NULL;
     }
 
@@ -977,7 +994,7 @@ ssh_key pki_private_key_from_base64(const char *b64_key,
             }
 
             if (!valid) {
-                SSH_LOG(SSH_LOG_WARN, "Parsing private key");
+                SSH_LOG(SSH_LOG_TRACE, "Error parsing private key");
                 goto fail;
             }
             break;
@@ -996,7 +1013,7 @@ ssh_key pki_private_key_from_base64(const char *b64_key,
             }
 
             if (!valid) {
-                SSH_LOG(SSH_LOG_WARN, "Parsing private key");
+                SSH_LOG(SSH_LOG_TRACE, "Error parsing private key");
                 goto fail;
             }
             break;
@@ -1027,7 +1044,7 @@ ssh_key pki_private_key_from_base64(const char *b64_key,
             }
 
             if (!valid) {
-                SSH_LOG(SSH_LOG_WARN, "Parsing private key");
+                SSH_LOG(SSH_LOG_TRACE, "Error parsing private key");
                 goto fail;
             }
 
@@ -1035,7 +1052,7 @@ ssh_key pki_private_key_from_base64(const char *b64_key,
              * keys, so we need to figure out the correct type here */
             type = pki_key_ecdsa_to_key_type(ecdsa);
             if (type == SSH_KEYTYPE_UNKNOWN) {
-                SSH_LOG(SSH_LOG_WARN, "Invalid private key.");
+                SSH_LOG(SSH_LOG_TRACE, "Invalid private key.");
                 goto fail;
             }
             break;
@@ -1045,7 +1062,7 @@ ssh_key pki_private_key_from_base64(const char *b64_key,
         case SSH_KEYTYPE_RSA1:
         case SSH_KEYTYPE_UNKNOWN:
         default:
-            SSH_LOG(SSH_LOG_WARN, "Unknown or invalid private key type %d", type);
+            SSH_LOG(SSH_LOG_TRACE, "Unknown or invalid private key type %d", type);
             return NULL;
     }
 
@@ -1353,9 +1370,9 @@ ssh_key pki_key_dup(const ssh_key key, int demote)
 }
 
 static int pki_key_generate(ssh_key key, int parameter, const char *type_s, int type){
-    gcry_sexp_t parms;
+    gcry_sexp_t params;
     int rc;
-    rc = gcry_sexp_build(&parms,
+    rc = gcry_sexp_build(&params,
             NULL,
             "(genkey(%s(nbits %d)(transient-key)))",
             type_s,
@@ -1364,20 +1381,20 @@ static int pki_key_generate(ssh_key key, int parameter, const char *type_s, int 
         return SSH_ERROR;
     switch (type) {
     case SSH_KEYTYPE_RSA:
-        rc = gcry_pk_genkey(&key->rsa, parms);
+        rc = gcry_pk_genkey(&key->rsa, params);
         break;
     case SSH_KEYTYPE_DSS:
-        rc = gcry_pk_genkey(&key->dsa, parms);
+        rc = gcry_pk_genkey(&key->dsa, params);
         break;
     case SSH_KEYTYPE_ECDSA_P256:
     case SSH_KEYTYPE_ECDSA_P384:
     case SSH_KEYTYPE_ECDSA_P521:
-        rc = gcry_pk_genkey(&key->ecdsa, parms);
+        rc = gcry_pk_genkey(&key->ecdsa, params);
         break;
     default:
         assert (! "reached");
     }
-    gcry_sexp_release(parms);
+    gcry_sexp_release(params);
     if (rc != 0)
         return SSH_ERROR;
     return SSH_OK;
@@ -1506,11 +1523,13 @@ int pki_key_compare(const ssh_key k1,
             }
             break;
         case SSH_KEYTYPE_ED25519:
-		/* ed25519 keys handled globaly */
-		return 0;
+        case SSH_KEYTYPE_SK_ED25519:
+            /* ed25519 keys handled globally */
+            return 0;
         case SSH_KEYTYPE_ECDSA_P256:
         case SSH_KEYTYPE_ECDSA_P384:
         case SSH_KEYTYPE_ECDSA_P521:
+        case SSH_KEYTYPE_SK_ECDSA:
 #ifdef HAVE_GCRYPT_ECC
             if (k1->ecdsa_nid != k2->ecdsa_nid) {
                 return 1;
@@ -1533,7 +1552,9 @@ int pki_key_compare(const ssh_key k1,
         case SSH_KEYTYPE_ECDSA_P256_CERT01:
         case SSH_KEYTYPE_ECDSA_P384_CERT01:
         case SSH_KEYTYPE_ECDSA_P521_CERT01:
+        case SSH_KEYTYPE_SK_ECDSA_CERT01:
         case SSH_KEYTYPE_ED25519_CERT01:
+        case SSH_KEYTYPE_SK_ED25519_CERT01:
         case SSH_KEYTYPE_RSA1:
         case SSH_KEYTYPE_UNKNOWN:
             return 1;
@@ -1675,14 +1696,20 @@ ssh_string pki_publickey_to_blob(const ssh_key key)
 
             break;
         case SSH_KEYTYPE_ED25519:
-		rc = pki_ed25519_public_key_to_blob(buffer, key);
-		if (rc != SSH_OK){
-			goto fail;
-		}
-		break;
+        case SSH_KEYTYPE_SK_ED25519:
+            rc = pki_ed25519_public_key_to_blob(buffer, key);
+            if (rc != SSH_OK){
+                goto fail;
+            }
+            if (key->type == SSH_KEYTYPE_SK_ED25519 &&
+                ssh_buffer_add_ssh_string(buffer, key->sk_application) < 0) {
+                goto fail;
+            }
+            break;
         case SSH_KEYTYPE_ECDSA_P256:
         case SSH_KEYTYPE_ECDSA_P384:
         case SSH_KEYTYPE_ECDSA_P521:
+        case SSH_KEYTYPE_SK_ECDSA:
 #ifdef HAVE_GCRYPT_ECC
             type_s = ssh_string_from_char(
                        pki_key_ecdsa_nid_to_char(key->ecdsa_nid));
@@ -1713,6 +1740,12 @@ ssh_string pki_publickey_to_blob(const ssh_key key)
             ssh_string_burn(e);
             SSH_STRING_FREE(e);
             e = NULL;
+
+            if (key->type == SSH_KEYTYPE_SK_ECDSA &&
+                ssh_buffer_add_ssh_string(buffer, key->sk_application) < 0) {
+                goto fail;
+            }
+
             break;
 #endif
         case SSH_KEYTYPE_RSA1:
@@ -1765,6 +1798,7 @@ ssh_string pki_signature_to_blob(const ssh_signature sig)
     gcry_sexp_t sexp;
     size_t size = 0;
     ssh_string sig_blob = NULL;
+    int rc;
 
     switch(sig->type) {
         case SSH_KEYTYPE_DSS:
@@ -1812,7 +1846,11 @@ ssh_string pki_signature_to_blob(const ssh_signature sig)
                 return NULL;
             }
 
-            ssh_string_fill(sig_blob, buffer, 40);
+            rc = ssh_string_fill(sig_blob, buffer, 40);
+            if (rc < 0) {
+                SSH_STRING_FREE(sig_blob);
+                return NULL;
+            }
             break;
         case SSH_KEYTYPE_RSA:
             sexp = gcry_sexp_find_token(sig->rsa_sig, "s", 0);
@@ -1829,13 +1867,16 @@ ssh_string pki_signature_to_blob(const ssh_signature sig)
             if (sig_blob == NULL) {
                 return NULL;
             }
-            ssh_string_fill(sig_blob, discard_const_p(char, s), size);
-
+            rc = ssh_string_fill(sig_blob, discard_const_p(char, s), size);
             gcry_sexp_release(sexp);
+            if (rc < 0) {
+                SSH_STRING_FREE(sig_blob);
+                return NULL;
+            }
             break;
         case SSH_KEYTYPE_ED25519:
-		sig_blob = pki_ed25519_signature_to_blob(sig);
-		break;
+            sig_blob = pki_ed25519_signature_to_blob(sig);
+            break;
         case SSH_KEYTYPE_ECDSA_P256:
         case SSH_KEYTYPE_ECDSA_P384:
         case SSH_KEYTYPE_ECDSA_P521:
@@ -1844,7 +1885,6 @@ ssh_string pki_signature_to_blob(const ssh_signature sig)
                 ssh_string R;
                 ssh_string S;
                 ssh_buffer b;
-                int rc;
 
                 b = ssh_buffer_new();
                 if (b == NULL) {
@@ -1885,16 +1925,20 @@ ssh_string pki_signature_to_blob(const ssh_signature sig)
                     return NULL;
                 }
 
-                ssh_string_fill(sig_blob,
+                rc = ssh_string_fill(sig_blob,
                                 ssh_buffer_get(b), ssh_buffer_get_len(b));
                 SSH_BUFFER_FREE(b);
+                if (rc < 0) {
+                    SSH_STRING_FREE(sig_blob);
+                    return NULL;
+                }
                 break;
             }
 #endif
         case SSH_KEYTYPE_RSA1:
         case SSH_KEYTYPE_UNKNOWN:
         default:
-            SSH_LOG(SSH_LOG_WARN, "Unknown signature key type: %d", sig->type);
+            SSH_LOG(SSH_LOG_TRACE, "Unknown signature key type: %d", sig->type);
             return NULL;
             break;
     }
@@ -1914,7 +1958,7 @@ ssh_signature pki_signature_from_blob(const ssh_key pubkey,
     int rc;
 
     if (ssh_key_type_plain(pubkey->type) != type) {
-        SSH_LOG(SSH_LOG_WARN,
+        SSH_LOG(SSH_LOG_TRACE,
                 "Incompatible public key provided (%d) expecting (%d)",
                 type,
                 pubkey->type);
@@ -1936,7 +1980,7 @@ ssh_signature pki_signature_from_blob(const ssh_key pubkey,
         case SSH_KEYTYPE_DSS:
             /* 40 is the dual signature blob len. */
             if (len != 40) {
-                SSH_LOG(SSH_LOG_WARN,
+                SSH_LOG(SSH_LOG_TRACE,
                         "Signature has wrong size: %lu",
                         (unsigned long)len);
                 ssh_signature_free(sig);
@@ -1966,9 +2010,10 @@ ssh_signature pki_signature_from_blob(const ssh_key pubkey,
             rsalen = (gcry_pk_get_nbits(pubkey->rsa) + 7) / 8;
 
             if (len > rsalen) {
-                SSH_LOG(SSH_LOG_WARN,
-                        "Signature is to big size: %lu",
-                        (unsigned long)len);
+                SSH_LOG(SSH_LOG_TRACE,
+                        "Signature is too big: %lu > %lu",
+                        (unsigned long)len,
+                        (unsigned long)rsalen);
                 ssh_signature_free(sig);
                 return NULL;
             }
@@ -1996,6 +2041,7 @@ ssh_signature pki_signature_from_blob(const ssh_key pubkey,
             }
             break;
         case SSH_KEYTYPE_ED25519:
+        case SSH_KEYTYPE_SK_ED25519:
 		rc = pki_signature_from_ed25519_blob(sig, sig_blob);
 		if (rc != SSH_OK){
 			ssh_signature_free(sig);
@@ -2005,6 +2051,7 @@ ssh_signature pki_signature_from_blob(const ssh_key pubkey,
         case SSH_KEYTYPE_ECDSA_P256:
         case SSH_KEYTYPE_ECDSA_P384:
         case SSH_KEYTYPE_ECDSA_P521:
+        case SSH_KEYTYPE_SK_ECDSA:
 #ifdef HAVE_GCRYPT_ECC
             { /* build ecdsa siganature */
                 ssh_buffer b;
@@ -2044,7 +2091,7 @@ ssh_signature pki_signature_from_blob(const ssh_key pubkey,
                 }
 
                 if (rlen != 0) {
-                    SSH_LOG(SSH_LOG_WARN,
+                    SSH_LOG(SSH_LOG_TRACE,
                             "Signature has remaining bytes in inner "
                             "sigblob: %lu",
                             (unsigned long)rlen);
@@ -2082,7 +2129,7 @@ ssh_signature pki_signature_from_blob(const ssh_key pubkey,
         case SSH_KEYTYPE_RSA1:
         case SSH_KEYTYPE_UNKNOWN:
         default:
-            SSH_LOG(SSH_LOG_WARN, "Unknown signature type");
+            SSH_LOG(SSH_LOG_TRACE, "Unknown signature type");
             return NULL;
     }
 
@@ -2143,7 +2190,7 @@ ssh_signature pki_do_sign_hash(const ssh_key privkey,
                 break;
             case SSH_DIGEST_AUTO:
             default:
-                SSH_LOG(SSH_LOG_WARN, "Incompatible key algorithm");
+                SSH_LOG(SSH_LOG_TRACE, "Incompatible key algorithm");
                 return NULL;
             }
             err = gcry_sexp_build(&sexp,
@@ -2347,7 +2394,9 @@ int pki_verify_data_signature(ssh_signature signature,
         break;
     case SSH_DIGEST_AUTO:
         if (pubkey->type == SSH_KEYTYPE_ED25519 ||
-            pubkey->type == SSH_KEYTYPE_ED25519_CERT01)
+            pubkey->type == SSH_KEYTYPE_ED25519_CERT01 ||
+            pubkey->type == SSH_KEYTYPE_SK_ED25519 ||
+            pubkey->type == SSH_KEYTYPE_SK_ED25519_CERT01)
         {
             verify_input = input;
             hlen = input_len;
@@ -2416,6 +2465,8 @@ int pki_verify_data_signature(ssh_signature signature,
         case SSH_KEYTYPE_ECDSA_P256_CERT01:
         case SSH_KEYTYPE_ECDSA_P384_CERT01:
         case SSH_KEYTYPE_ECDSA_P521_CERT01:
+        case SSH_KEYTYPE_SK_ECDSA:
+        case SSH_KEYTYPE_SK_ECDSA_CERT01:
 #ifdef HAVE_GCRYPT_ECC
             err = gcry_sexp_build(&sexp,
                                   NULL,
@@ -2443,6 +2494,8 @@ int pki_verify_data_signature(ssh_signature signature,
 #endif
         case SSH_KEYTYPE_ED25519:
         case SSH_KEYTYPE_ED25519_CERT01:
+        case SSH_KEYTYPE_SK_ED25519:
+        case SSH_KEYTYPE_SK_ED25519_CERT01:
             rc = pki_ed25519_verify(pubkey, signature, verify_input, hlen);
             if (rc != SSH_OK) {
                 SSH_LOG(SSH_LOG_TRACE, "ED25519 error: Signature invalid");
@@ -2459,4 +2512,44 @@ int pki_verify_data_signature(ssh_signature signature,
     return SSH_OK;
 }
 
+int ssh_key_size(ssh_key key)
+{
+    switch (key->type) {
+    case SSH_KEYTYPE_DSS:
+    case SSH_KEYTYPE_DSS_CERT01:
+        return gcry_pk_get_nbits(key->dsa);
+    case SSH_KEYTYPE_RSA:
+    case SSH_KEYTYPE_RSA_CERT01:
+    case SSH_KEYTYPE_RSA1:
+        return gcry_pk_get_nbits(key->rsa);
+    case SSH_KEYTYPE_ECDSA_P256:
+    case SSH_KEYTYPE_ECDSA_P256_CERT01:
+    case SSH_KEYTYPE_ECDSA_P384:
+    case SSH_KEYTYPE_ECDSA_P384_CERT01:
+    case SSH_KEYTYPE_ECDSA_P521:
+    case SSH_KEYTYPE_ECDSA_P521_CERT01:
+    case SSH_KEYTYPE_SK_ECDSA:
+    case SSH_KEYTYPE_SK_ECDSA_CERT01:
+        return gcry_pk_get_nbits(key->ecdsa);
+    case SSH_KEYTYPE_ED25519:
+    case SSH_KEYTYPE_ED25519_CERT01:
+    case SSH_KEYTYPE_SK_ED25519:
+    case SSH_KEYTYPE_SK_ED25519_CERT01:
+        /* ed25519 keys have fixed size */
+        return 255;
+    case SSH_KEYTYPE_UNKNOWN:
+    default:
+        return SSH_ERROR;
+    }
+}
+
+int pki_uri_import(const char *uri_name, ssh_key *key, enum ssh_key_e key_type)
+{
+    (void) uri_name;
+    (void) key;
+    (void) key_type;
+    SSH_LOG(SSH_LOG_TRACE,
+            "gcrypt does not support PKCS #11");
+    return SSH_ERROR;
+}
 #endif /* HAVE_LIBGCRYPT */

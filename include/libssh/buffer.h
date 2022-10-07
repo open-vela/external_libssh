@@ -27,6 +27,10 @@
 
 #define SSH_BUFFER_PACK_END ((uint32_t) 0x4f65feb3)
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 void ssh_buffer_set_secure(ssh_buffer buffer);
 int ssh_buffer_add_ssh_string(ssh_buffer buffer, ssh_string string);
 int ssh_buffer_add_u8(ssh_buffer buffer, uint8_t data);
@@ -63,9 +67,9 @@ int ssh_buffer_prepend_data(ssh_buffer buffer, const void *data, uint32_t len);
 int ssh_buffer_add_buffer(ssh_buffer buffer, ssh_buffer source);
 
 /* buffer_read_*() returns the number of bytes read, except for ssh strings */
-int ssh_buffer_get_u8(ssh_buffer buffer, uint8_t *data);
-int ssh_buffer_get_u32(ssh_buffer buffer, uint32_t *data);
-int ssh_buffer_get_u64(ssh_buffer buffer, uint64_t *data);
+uint32_t ssh_buffer_get_u8(ssh_buffer buffer, uint8_t *data);
+uint32_t ssh_buffer_get_u32(ssh_buffer buffer, uint32_t *data);
+uint32_t ssh_buffer_get_u64(ssh_buffer buffer, uint64_t *data);
 
 /* ssh_buffer_get_ssh_string() is an exception. if the String read is too large or invalid, it will answer NULL. */
 ssh_string ssh_buffer_get_ssh_string(ssh_buffer buffer);
@@ -73,5 +77,9 @@ ssh_string ssh_buffer_get_ssh_string(ssh_buffer buffer);
 /* ssh_buffer_pass_bytes acts as if len bytes have been read (used for padding) */
 uint32_t ssh_buffer_pass_bytes_end(ssh_buffer buffer, uint32_t len);
 uint32_t ssh_buffer_pass_bytes(ssh_buffer buffer, uint32_t len);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* BUFFER_H_ */

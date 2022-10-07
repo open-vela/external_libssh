@@ -5,6 +5,7 @@
  *
  * Copyright (c) 2003-2009 by Aris Adamantiadis
  * Copyright (c) 2009-2013 by Andreas Schneider <asn@cryptomilk.org>
+ * Copyright (c) 2019      by Sahana Prasad     <sahana@redhat.com>
  *
  * The SSH Library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -28,12 +29,20 @@
 #include "config.h"
 
 #include "libssh/priv.h"
+#include "libcrypto-compat.h"
 
 #include <openssl/pem.h>
-#include <openssl/dsa.h>
+#include <openssl/evp.h>
+#include <openssl/engine.h>
 #include <openssl/err.h>
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
+#include <openssl/dsa.h>
 #include <openssl/rsa.h>
-#include "libcrypto-compat.h"
+#else
+#include <openssl/params.h>
+#include <openssl/core_names.h>
+#include <openssl/param_build.h>
+#endif /* OPENSSL_VERSION_NUMBER */
 
 #ifdef HAVE_OPENSSL_EC_H
 #include <openssl/ec.h>
@@ -78,7 +87,30 @@ static int pem_get_password(char *buf, int size, int rwflag, void *userdata) {
     return 0;
 }
 
+void pki_key_clean(ssh_key key)
+{
+    if (key == NULL)
+        return;
 #ifdef HAVE_OPENSSL_ECC
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * Move whole HAVE_OPENSSL_ECC into #if < 0x3 above
+ */
+#if 1
+    EC_KEY_free(key->ecdsa);
+    key->ecdsa = NULL;
+#endif
+#endif /* HAVE_OPENSSL_ECC */
+    EVP_PKEY_free(key->key);
+    key->key = NULL;
+}
+
+#ifdef HAVE_OPENSSL_ECC
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER < 0x30000000L
+ */
+#if 1
 static int pki_key_ecdsa_to_nid(EC_KEY *k)
 {
     const EC_GROUP *g = EC_KEY_get0_group(k);
@@ -91,8 +123,42 @@ static int pki_key_ecdsa_to_nid(EC_KEY *k)
 
     return -1;
 }
+#else
+static int pki_key_ecdsa_to_nid(EVP_PKEY *k)
+{
+    char gname[25] = { 0 };
+    int nid, rc;
 
+    rc = EVP_PKEY_get_utf8_string_param(k, "group", gname, 25, NULL);
+    if (rc != 1)
+        return -1;
+
+    if (strcmp(gname, NISTP256) == 0
+        || strcmp(gname, "secp256r1") == 0
+        || strcmp(gname, "prime256v1") == 0) {
+        nid = NID_X9_62_prime256v1;
+    } else if (strcmp(gname, NISTP384) == 0
+               || strcmp(gname, "secp384r1") == 0) {
+        nid = NID_secp384r1;
+    } else if (strcmp(gname, NISTP521) == 0
+               || strcmp(gname, "secp521r1") == 0) {
+        nid = NID_secp521r1;
+    } else
+        return -1;
+
+    return nid;
+}
+#endif /* OPENSSL_VERSION_NUMBER */
+
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER < 0x30000000L
+ */
+#if 1
 static enum ssh_keytypes_e pki_key_ecdsa_to_key_type(EC_KEY *k)
+#else
+static enum ssh_keytypes_e pki_key_ecdsa_to_key_type(EVP_PKEY *k)
+#endif /* OPENSSL_VERSION_NUMBER */
 {
     int nid;
 
@@ -155,6 +221,11 @@ int pki_key_ecdsa_nid_from_name(const char *name)
     return -1;
 }
 
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER < 0x30000000L
+ */
+#if 1
 static ssh_string make_ecpoint_string(const EC_GROUP *g,
                                       const EC_POINT *p)
 {
@@ -189,17 +260,39 @@ static ssh_string make_ecpoint_string(const EC_GROUP *g,
 
     return s;
 }
+#endif /* OPENSSL_VERSION_NUMBER */
 
 int pki_privkey_build_ecdsa(ssh_key key, int nid, ssh_string e, ssh_string exp)
 {
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER < 0x30000000L
+ */
+#if 1
     EC_POINT *p = NULL;
     const EC_GROUP *g = NULL;
     int ok;
     BIGNUM *bexp = NULL;
+#else
+    int rc;
+    const BIGNUM *expb;
+    const char *group_name = OSSL_EC_curve_nid2name(nid);
+    OSSL_PARAM_BLD *param_bld = NULL;
+
+    if (group_name == NULL) {
+        return -1;
+    }
+    expb = ssh_make_string_bn(exp);
+#endif /* OPENSSL_VERSION_NUMBER */
 
     key->ecdsa_nid = nid;
     key->type_c = pki_key_ecdsa_nid_to_name(nid);
 
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER < 0x30000000L
+ */
+#if 1
     key->ecdsa = EC_KEY_new_by_curve_name(key->ecdsa_nid);
     if (key->ecdsa == NULL) {
         return -1;
@@ -243,17 +336,57 @@ int pki_privkey_build_ecdsa(ssh_key key, int nid, ssh_string e, ssh_string exp)
     }
 
     return 0;
+#else
+    param_bld = OSSL_PARAM_BLD_new();
+    if (param_bld == NULL)
+        goto err;
+
+    rc = OSSL_PARAM_BLD_push_utf8_string(param_bld, OSSL_PKEY_PARAM_GROUP_NAME,
+                                         group_name, strlen(group_name));
+    if (rc != 1)
+        goto err;
+    rc = OSSL_PARAM_BLD_push_octet_string(param_bld, OSSL_PKEY_PARAM_PUB_KEY,
+                                          ssh_string_data(e), ssh_string_len(e));
+    if (rc != 1)
+        goto err;
+    rc = OSSL_PARAM_BLD_push_BN(param_bld, OSSL_PKEY_PARAM_PRIV_KEY, expb);
+    if (rc != 1)
+        goto err;
+
+    rc = evp_build_pkey("EC", param_bld, &(key->key), EVP_PKEY_KEYPAIR);
+    OSSL_PARAM_BLD_free(param_bld);
+
+    return rc;
+err:
+    OSSL_PARAM_BLD_free(param_bld);
+    return -1;
+#endif /* OPENSSL_VERSION_NUMBER */
 }
 
 int pki_pubkey_build_ecdsa(ssh_key key, int nid, ssh_string e)
 {
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER < 0x30000000L
+ */
+#if 1
     EC_POINT *p = NULL;
     const EC_GROUP *g = NULL;
     int ok;
+#else
+    int rc;
+    const char *group_name = OSSL_EC_curve_nid2name(nid);
+    OSSL_PARAM_BLD *param_bld;
+#endif /* OPENSSL_VERSION_NUMBER */
 
     key->ecdsa_nid = nid;
     key->type_c = pki_key_ecdsa_nid_to_name(nid);
 
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER < 0x30000000L
+ */
+ #if 1
     key->ecdsa = EC_KEY_new_by_curve_name(key->ecdsa_nid);
     if (key->ecdsa == NULL) {
         return -1;
@@ -284,12 +417,34 @@ int pki_pubkey_build_ecdsa(ssh_key key, int nid, ssh_string e)
     }
 
     return 0;
+#else
+    param_bld = OSSL_PARAM_BLD_new();
+    if (param_bld == NULL)
+        goto err;
+
+    rc = OSSL_PARAM_BLD_push_utf8_string(param_bld, OSSL_PKEY_PARAM_GROUP_NAME,
+                                         group_name, strlen(group_name));
+    if (rc != 1)
+        goto err;
+    rc = OSSL_PARAM_BLD_push_octet_string(param_bld, OSSL_PKEY_PARAM_PUB_KEY,
+                                          ssh_string_data(e), ssh_string_len(e));
+    if (rc != 1)
+        goto err;
+
+    rc = evp_build_pkey("EC", param_bld, &(key->key), EVP_PKEY_PUBLIC_KEY);
+    OSSL_PARAM_BLD_free(param_bld);
+
+    return rc;
+err:
+    OSSL_PARAM_BLD_free(param_bld);
+    return -1;
+#endif /* OPENSSL_VERSION_NUMBER */
 }
-#endif
+#endif /* HAVE_OPENSSL_ECC */
 
 ssh_key pki_key_dup(const ssh_key key, int demote)
 {
-    ssh_key new;
+    ssh_key new = NULL;
     int rc;
 
     new = ssh_key_new();
@@ -307,11 +462,13 @@ ssh_key pki_key_dup(const ssh_key key, int demote)
 
     switch (key->type) {
     case SSH_KEYTYPE_DSS: {
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
         const BIGNUM *p = NULL, *q = NULL, *g = NULL,
           *pub_key = NULL, *priv_key = NULL;
         BIGNUM *np, *nq, *ng, *npub_key, *npriv_key;
-        new->dsa = DSA_new();
-        if (new->dsa == NULL) {
+        DSA *new_dsa = DSA_new();
+        const DSA *key_dsa = EVP_PKEY_get0_DSA(key->key);
+        if (new_dsa == NULL) {
             goto fail;
         }
 
@@ -322,11 +479,12 @@ ssh_key pki_key_dup(const ssh_key key, int demote)
          * pub_key  = public key y = g^x
          * priv_key = private key x
          */
-        DSA_get0_pqg(key->dsa, &p, &q, &g);
+        DSA_get0_pqg(key_dsa, &p, &q, &g);
         np = BN_dup(p);
         nq = BN_dup(q);
         ng = BN_dup(g);
         if (np == NULL || nq == NULL || ng == NULL) {
+            DSA_free(new_dsa);
             BN_free(np);
             BN_free(nq);
             BN_free(ng);
@@ -334,47 +492,88 @@ ssh_key pki_key_dup(const ssh_key key, int demote)
         }
 
         /* Memory management of np, nq and ng is transferred to DSA object */
-        rc = DSA_set0_pqg(new->dsa, np, nq, ng);
+        rc = DSA_set0_pqg(new_dsa, np, nq, ng);
         if (rc == 0) {
+            DSA_free(new_dsa);
             BN_free(np);
             BN_free(nq);
             BN_free(ng);
             goto fail;
         }
 
-        DSA_get0_key(key->dsa, &pub_key, &priv_key);
+        DSA_get0_key(key_dsa, &pub_key, &priv_key);
         npub_key = BN_dup(pub_key);
         if (npub_key == NULL) {
+            DSA_free(new_dsa);
             goto fail;
         }
 
         /* Memory management of npubkey is transferred to DSA object */
-        rc = DSA_set0_key(new->dsa, npub_key, NULL);
+        rc = DSA_set0_key(new_dsa, npub_key, NULL);
         if (rc == 0) {
+            DSA_free(new_dsa);
             goto fail;
         }
 
         if (!demote && (key->flags & SSH_KEY_FLAG_PRIVATE)) {
             npriv_key = BN_dup(priv_key);
             if (npriv_key == NULL) {
+                DSA_free(new_dsa);
                 goto fail;
             }
 
             /* Memory management of npriv_key is transferred to DSA object */
-            rc = DSA_set0_key(new->dsa, NULL, npriv_key);
+            rc = DSA_set0_key(new_dsa, NULL, npriv_key);
             if (rc == 0) {
+                DSA_free(new_dsa);
                 goto fail;
             }
         }
 
+        new->key = EVP_PKEY_new();
+        if (new->key == NULL) {
+            DSA_free(new_dsa);
+            goto fail;
+        }
+
+        rc = EVP_PKEY_assign_DSA(new->key, new_dsa);
+        if (rc != 1) {
+            EVP_PKEY_free(new->key);
+            DSA_free(new_dsa);
+            goto fail;
+        }
+
+        new_dsa = NULL;
+#else
+        rc = evp_dup_dsa_pkey(key, new, demote);
+        if (rc != SSH_OK) {
+            goto fail;
+        }
+#endif /* OPENSSL_VERSION_NUMBER */
         break;
     }
     case SSH_KEYTYPE_RSA:
     case SSH_KEYTYPE_RSA1: {
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
         const BIGNUM *n = NULL, *e = NULL, *d = NULL;
         BIGNUM *nn, *ne, *nd;
-        new->rsa = RSA_new();
-        if (new->rsa == NULL) {
+        RSA *new_rsa = NULL;
+        const RSA *key_rsa = EVP_PKEY_get0_RSA(key->key);
+#endif /* OPENSSL_VERSION_NUMBER < 0x30000000L */
+#ifdef WITH_PKCS11_URI
+        /* Take the PKCS#11 keys as they are */
+        if (key->flags & SSH_KEY_FLAG_PKCS11_URI && !demote) {
+            rc = EVP_PKEY_up_ref(key->key);
+            if (rc != 1) {
+                goto fail;
+            }
+            new->key = key->key;
+            return new;
+        }
+#endif /* WITH_PKCS11_URI */
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
+        new_rsa = RSA_new();
+        if (new_rsa == NULL) {
             goto fail;
         }
 
@@ -388,18 +587,20 @@ ssh_key pki_key_dup(const ssh_key key, int demote)
          * dmq1 = d mod (q-1)
          * iqmp = q^-1 mod p
          */
-        RSA_get0_key(key->rsa, &n, &e, &d);
+        RSA_get0_key(key_rsa, &n, &e, &d);
         nn = BN_dup(n);
         ne = BN_dup(e);
         if (nn == NULL || ne == NULL) {
+            RSA_free(new_rsa);
             BN_free(nn);
             BN_free(ne);
             goto fail;
         }
 
         /* Memory management of nn and ne is transferred to RSA object */
-        rc = RSA_set0_key(new->rsa, nn, ne, NULL);
+        rc = RSA_set0_key(new_rsa, nn, ne, NULL);
         if (rc == 0) {
+            RSA_free(new_rsa);
             BN_free(nn);
             BN_free(ne);
             goto fail;
@@ -412,43 +613,48 @@ ssh_key pki_key_dup(const ssh_key key, int demote)
 
             nd = BN_dup(d);
             if (nd == NULL) {
+                RSA_free(new_rsa);
                 goto fail;
             }
 
             /* Memory management of nd is transferred to RSA object */
-            rc = RSA_set0_key(new->rsa, NULL, NULL, nd);
+            rc = RSA_set0_key(new_rsa, NULL, NULL, nd);
             if (rc == 0) {
+                RSA_free(new_rsa);
                 goto fail;
             }
 
             /* p, q, dmp1, dmq1 and iqmp may be NULL in private keys, but the
              * RSA operations are much faster when these values are available.
              */
-            RSA_get0_factors(key->rsa, &p, &q);
+            RSA_get0_factors(key_rsa, &p, &q);
             if (p != NULL && q != NULL) { /* need to set both of them */
                 np = BN_dup(p);
                 nq = BN_dup(q);
                 if (np == NULL || nq == NULL) {
+                    RSA_free(new_rsa);
                     BN_free(np);
                     BN_free(nq);
                     goto fail;
                 }
 
                 /* Memory management of np and nq is transferred to RSA object */
-                rc = RSA_set0_factors(new->rsa, np, nq);
+                rc = RSA_set0_factors(new_rsa, np, nq);
                 if (rc == 0) {
+                    RSA_free(new_rsa);
                     BN_free(np);
                     BN_free(nq);
                     goto fail;
                 }
             }
 
-            RSA_get0_crt_params(key->rsa, &dmp1, &dmq1, &iqmp);
+            RSA_get0_crt_params(key_rsa, &dmp1, &dmq1, &iqmp);
             if (dmp1 != NULL || dmq1 != NULL || iqmp != NULL) {
                 ndmp1 = BN_dup(dmp1);
                 ndmq1 = BN_dup(dmq1);
                 niqmp = BN_dup(iqmp);
                 if (ndmp1 == NULL || ndmq1 == NULL || niqmp == NULL) {
+                    RSA_free(new_rsa);
                     BN_free(ndmp1);
                     BN_free(ndmq1);
                     BN_free(niqmp);
@@ -457,8 +663,9 @@ ssh_key pki_key_dup(const ssh_key key, int demote)
 
                 /* Memory management of ndmp1, ndmq1 and niqmp is transferred
                  * to RSA object */
-                rc =  RSA_set0_crt_params(new->rsa, ndmp1, ndmq1, niqmp);
+                rc = RSA_set0_crt_params(new_rsa, ndmp1, ndmq1, niqmp);
                 if (rc == 0) {
+                    RSA_free(new_rsa);
                     BN_free(ndmp1);
                     BN_free(ndmq1);
                     BN_free(niqmp);
@@ -467,6 +674,26 @@ ssh_key pki_key_dup(const ssh_key key, int demote)
             }
         }
 
+        new->key = EVP_PKEY_new();
+        if (new->key == NULL) {
+            RSA_free(new_rsa);
+            goto fail;
+        }
+
+        rc = EVP_PKEY_assign_RSA(new->key, new_rsa);
+        if (rc != 1) {
+            EVP_PKEY_free(new->key);
+            RSA_free(new_rsa);
+            goto fail;
+        }
+
+        new_rsa = NULL;
+#else
+        rc = evp_dup_rsa_pkey(key, new, demote);
+        if (rc != SSH_OK) {
+            goto fail;
+        }
+#endif /* OPENSSL_VERSION_NUMBER */
         break;
     }
     case SSH_KEYTYPE_ECDSA_P256:
@@ -474,7 +701,27 @@ ssh_key pki_key_dup(const ssh_key key, int demote)
     case SSH_KEYTYPE_ECDSA_P521:
 #ifdef HAVE_OPENSSL_ECC
         new->ecdsa_nid = key->ecdsa_nid;
-
+#ifdef WITH_PKCS11_URI
+        /* Take the PKCS#11 keys as they are */
+        if (key->flags & SSH_KEY_FLAG_PKCS11_URI && !demote) {
+            rc = EVP_PKEY_up_ref(key->key);
+            if (rc != 1) {
+                goto fail;
+            }
+            new->key = key->key;
+            rc = EC_KEY_up_ref(key->ecdsa);
+            if (rc != 1) {
+                goto fail;
+            }
+            new->ecdsa = key->ecdsa;
+            return new;
+        }
+#endif /* WITH_PKCS11_URI */
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER < 0x30000000L
+ */
+#if 1
         /* privkey -> pubkey */
         if (demote && ssh_key_is_private(key)) {
             const EC_POINT *p;
@@ -495,10 +742,20 @@ ssh_key pki_key_dup(const ssh_key key, int demote)
                 goto fail;
             }
         } else {
-            new->ecdsa = EC_KEY_dup(key->ecdsa);
+            rc = EC_KEY_up_ref(key->ecdsa);
+            if (rc != 1) {
+                goto fail;
+            }
+            new->ecdsa = key->ecdsa;
         }
+#else
+        rc = evp_dup_ecdsa_pkey(key, new, demote);
+        if (rc != SSH_OK) {
+            goto fail;
+        }
+#endif /* OPENSSL_VERSION_NUMBER */
         break;
-#endif
+#endif /* HAVE_OPENSSL_ECC */
     case SSH_KEYTYPE_ED25519:
         rc = pki_ed25519_key_dup(new, key);
         if (rc != SSH_OK) {
@@ -518,30 +775,82 @@ fail:
 }
 
 int pki_key_generate_rsa(ssh_key key, int parameter){
-	BIGNUM *e;
 	int rc;
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
+    BIGNUM *e = NULL;
+    RSA *key_rsa = NULL;
+#else
+    OSSL_PARAM params[3];
+    EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_from_name(NULL, "RSA", NULL);
+    unsigned e = 65537;
+#endif /* OPENSSL_VERSION_NUMBER */
 
-	e = BN_new();
-	key->rsa = RSA_new();
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
+    e = BN_new();
+    key_rsa = RSA_new();
+    if (key_rsa == NULL) {
+        return SSH_ERROR;
+    }
 
-	BN_set_word(e, 65537);
-	rc = RSA_generate_key_ex(key->rsa, parameter, e, NULL);
+    BN_set_word(e, 65537);
+    rc = RSA_generate_key_ex(key_rsa, parameter, e, NULL);
 
-	BN_free(e);
+    BN_free(e);
 
-	if (rc <= 0 || key->rsa == NULL)
-		return SSH_ERROR;
+    if (rc <= 0 || key_rsa == NULL) {
+        return SSH_ERROR;
+    }
+
+    key->key = EVP_PKEY_new();
+    if (key->key == NULL) {
+        RSA_free(key_rsa);
+        return SSH_ERROR;
+    }
+
+    rc = EVP_PKEY_assign_RSA(key->key, key_rsa);
+    if (rc != 1) {
+        RSA_free(key_rsa);
+        EVP_PKEY_free(key->key);
+        return SSH_ERROR;
+    }
+
+    key_rsa = NULL;
+#else
+    key->key = NULL;
+
+    rc = EVP_PKEY_keygen_init(pctx);
+    if (rc != 1) {
+        EVP_PKEY_CTX_free(pctx);
+        return SSH_ERROR;
+    }
+
+    params[0] = OSSL_PARAM_construct_int("bits", &parameter);
+    params[1] = OSSL_PARAM_construct_uint("e", &e);
+    params[2] = OSSL_PARAM_construct_end();
+    rc = EVP_PKEY_CTX_set_params(pctx, params);
+    if (rc != 1) {
+        EVP_PKEY_CTX_free(pctx);
+        return SSH_ERROR;
+    }
+
+    rc = EVP_PKEY_generate(pctx, &(key->key));
+
+    EVP_PKEY_CTX_free(pctx);
+
+    if (rc != 1 || key->key == NULL)
+        return SSH_ERROR;
+#endif /* OPENSSL_VERSION_NUMBER */
 	return SSH_OK;
 }
 
 int pki_key_generate_dss(ssh_key key, int parameter){
     int rc;
-#if OPENSSL_VERSION_NUMBER > 0x00908000L
-    key->dsa = DSA_new();
-    if (key->dsa == NULL) {
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
+    DSA *key_dsa = DSA_new();
+    if (key_dsa == NULL) {
         return SSH_ERROR;
     }
-    rc = DSA_generate_parameters_ex(key->dsa,
+    rc = DSA_generate_parameters_ex(key_dsa,
                                     parameter,
                                     NULL,  /* seed */
                                     0,     /* seed_len */
@@ -549,54 +858,163 @@ int pki_key_generate_dss(ssh_key key, int parameter){
                                     NULL,  /* h_ret */
                                     NULL); /* cb */
     if (rc != 1) {
-        DSA_free(key->dsa);
-        key->dsa = NULL;
+        DSA_free(key_dsa);
         return SSH_ERROR;
     }
+    rc = DSA_generate_key(key_dsa);
+    if (rc != 1) {
+        DSA_free(key_dsa);
+        return SSH_ERROR;
+    }
+
+    key->key = EVP_PKEY_new();
+    if (key->key == NULL) {
+        DSA_free(key_dsa);
+        return SSH_ERROR;
+    }
+
+    rc = EVP_PKEY_assign_DSA(key->key, key_dsa);
+    if (rc != 1) {
+        DSA_free(key_dsa);
+        EVP_PKEY_free(key->key);
+        return SSH_ERROR;
+    }
+
+    key_dsa = NULL;
 #else
-    key->dsa = DSA_generate_parameters(parameter, NULL, 0, NULL, NULL,
-            NULL, NULL);
-    if(key->dsa == NULL){
+    OSSL_PARAM params[3];
+    EVP_PKEY *param_key = NULL;
+    EVP_PKEY_CTX *pctx = NULL;
+    EVP_PKEY_CTX *gctx = NULL;
+    int qbits = parameter < 2048 ? 160 : 256;
+
+    key->key = EVP_PKEY_new();
+    if (key->key == NULL) {
         return SSH_ERROR;
     }
-#endif
-    rc = DSA_generate_key(key->dsa);
-    if (rc != 1){
-        DSA_free(key->dsa);
-        key->dsa=NULL;
+    pctx = EVP_PKEY_CTX_new_from_name(NULL, "DSA", NULL);
+    if (pctx == NULL) {
         return SSH_ERROR;
     }
+
+    rc = EVP_PKEY_paramgen_init(pctx);
+    if (rc != 1) {
+        EVP_PKEY_CTX_free(pctx);
+        return SSH_ERROR;
+    }
+    params[0] = OSSL_PARAM_construct_int("pbits", &parameter);
+    params[1] = OSSL_PARAM_construct_int("qbits", &qbits);
+    params[2] = OSSL_PARAM_construct_end();
+    rc = EVP_PKEY_CTX_set_params(pctx, params);
+    if (rc != 1) {
+        EVP_PKEY_CTX_free(pctx);
+        return SSH_ERROR;
+    }
+    /* generating the domain parameters */
+    rc = EVP_PKEY_generate(pctx, &param_key);
+    if (rc != 1) {
+        EVP_PKEY_CTX_free(pctx);
+        EVP_PKEY_free(param_key);
+        return SSH_ERROR;
+    }
+    EVP_PKEY_CTX_free(pctx);
+
+    gctx = EVP_PKEY_CTX_new_from_pkey(NULL, param_key, NULL);
+    if (gctx == NULL) {
+        EVP_PKEY_free(param_key);
+        return SSH_ERROR;
+    }
+
+    EVP_PKEY_free(param_key);
+    rc = EVP_PKEY_keygen_init(gctx);
+    if (rc != 1) {
+        EVP_PKEY_CTX_free(gctx);
+        return SSH_ERROR;
+    }
+    /* generating the key from the domain parameters */
+    rc = EVP_PKEY_generate(gctx, &key->key);
+    if (rc != 1) {
+        EVP_PKEY_free(key->key);
+        key->key = NULL;
+        EVP_PKEY_CTX_free(gctx);
+        return SSH_ERROR;
+    }
+    EVP_PKEY_CTX_free(gctx);
+#endif /* OPENSSL_VERSION_NUMBER */
     return SSH_OK;
 }
 
 #ifdef HAVE_OPENSSL_ECC
 int pki_key_generate_ecdsa(ssh_key key, int parameter) {
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER < 0x30000000L
+ */
+#if 1
     int ok;
-
+#else
+    const char *group_name = NULL;
+#endif /* OPENSSL_VERSION_NUMBER */
     switch (parameter) {
+        case 256:
+            key->ecdsa_nid = NID_X9_62_prime256v1;
+            key->type = SSH_KEYTYPE_ECDSA_P256;
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER >= 0x30000000L
+ */
+#if 0
+            group_name = NISTP256;
+#endif /* OPENSSL_VERSION_NUMBER */
+            break;
         case 384:
             key->ecdsa_nid = NID_secp384r1;
             key->type = SSH_KEYTYPE_ECDSA_P384;
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER >= 0x30000000L
+ */
+#if 0
+            group_name = NISTP384;
+#endif /* OPENSSL_VERSION_NUMBER */
             break;
         case 521:
             key->ecdsa_nid = NID_secp521r1;
             key->type = SSH_KEYTYPE_ECDSA_P521;
-            break;
-        case 256:
-            key->ecdsa_nid = NID_X9_62_prime256v1;
-            key->type = SSH_KEYTYPE_ECDSA_P256;
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER >= 0x30000000L
+ */
+#if 0
+            group_name = NISTP521;
+#endif /* OPENSSL_VERSION_NUMBER */
             break;
         default:
-            SSH_LOG(SSH_LOG_WARN, "Invalid parameter %d for ECDSA key "
+            SSH_LOG(SSH_LOG_TRACE, "Invalid parameter %d for ECDSA key "
                     "generation", parameter);
             return SSH_ERROR;
     }
-
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER < 0x30000000L
+ */
+#if 1
     key->ecdsa = EC_KEY_new_by_curve_name(key->ecdsa_nid);
     if (key->ecdsa == NULL) {
         return SSH_ERROR;
     }
+#else
+    key->key = EVP_EC_gen(group_name);
+    if (key->key == NULL) {
+        return SSH_ERROR;
+    }
+#endif /* OPENSSL_VERSION_NUMBER */
 
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER < 0x30000000L
+ */
+#if 1
     ok = EC_KEY_generate_key(key->ecdsa);
     if (!ok) {
         EC_KEY_free(key->ecdsa);
@@ -604,77 +1022,43 @@ int pki_key_generate_ecdsa(ssh_key key, int parameter) {
     }
 
     EC_KEY_set_asn1_flag(key->ecdsa, OPENSSL_EC_NAMED_CURVE);
-
+#endif /* OPENSSL_VERSION_NUMBER */
     return SSH_OK;
 }
-#endif
+#endif /* HAVE_OPENSSL_ECC */
 
+/* With OpenSSL 3.0 and higher the parameter 'what'
+ * is ignored and the comparison is done by OpenSSL
+ */
 int pki_key_compare(const ssh_key k1,
                     const ssh_key k2,
                     enum ssh_keycmp_e what)
 {
+    int rc;
+    (void) what;
+
     switch (k1->type) {
-        case SSH_KEYTYPE_DSS: {
-            const BIGNUM *p1, *p2, *q1, *q2, *g1, *g2,
-                *pub_key1, *pub_key2, *priv_key1, *priv_key2;
-            if (DSA_size(k1->dsa) != DSA_size(k2->dsa)) {
-                return 1;
-            }
-            DSA_get0_pqg(k1->dsa, &p1, &q1, &g1);
-            DSA_get0_pqg(k2->dsa, &p2, &q2, &g2);
-            if (bignum_cmp(p1, p2) != 0) {
-                return 1;
-            }
-            if (bignum_cmp(q1, q2) != 0) {
-                return 1;
-            }
-            if (bignum_cmp(g1, g2) != 0) {
-                return 1;
-            }
-            DSA_get0_key(k1->dsa, &pub_key1, &priv_key1);
-            DSA_get0_key(k2->dsa, &pub_key2, &priv_key2);
-            if (bignum_cmp(pub_key1, pub_key2) != 0) {
-                return 1;
-            }
-
-            if (what == SSH_KEY_CMP_PRIVATE) {
-                if (bignum_cmp(priv_key1, priv_key2) != 0) {
-                    return 1;
-                }
-            }
-            break;
-        }
+        case SSH_KEYTYPE_DSS:
         case SSH_KEYTYPE_RSA:
-        case SSH_KEYTYPE_RSA1: {
-            const BIGNUM *e1, *e2, *n1, *n2, *p1, *p2, *q1, *q2;
-            if (RSA_size(k1->rsa) != RSA_size(k2->rsa)) {
+        case SSH_KEYTYPE_RSA1:
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * delete this part because it gets done below in EC
+ */
+            rc = EVP_PKEY_eq(k1->key, k2->key);
+            if (rc != 1) {
                 return 1;
-            }
-            RSA_get0_key(k1->rsa, &n1, &e1, NULL);
-            RSA_get0_key(k2->rsa, &n2, &e2, NULL);
-            if (bignum_cmp(e1, e2) != 0) {
-                return 1;
-            }
-            if (bignum_cmp(n1, n2) != 0) {
-                return 1;
-            }
-
-            if (what == SSH_KEY_CMP_PRIVATE) {
-                RSA_get0_factors(k1->rsa, &p1, &q1);
-                RSA_get0_factors(k2->rsa, &p2, &q2);
-                if (bignum_cmp(p1, p2) != 0) {
-                    return 1;
-                }
-
-                if (bignum_cmp(q1, q2) != 0) {
-                    return 1;
-                }
             }
             break;
-        }
         case SSH_KEYTYPE_ECDSA_P256:
         case SSH_KEYTYPE_ECDSA_P384:
         case SSH_KEYTYPE_ECDSA_P521:
+        case SSH_KEYTYPE_SK_ECDSA:
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER < 0x30000000L
+ */
+#if 1
 #ifdef HAVE_OPENSSL_ECC
             {
                 const EC_POINT *p1 = EC_KEY_get0_public_key(k1->ecdsa);
@@ -700,17 +1084,28 @@ int pki_key_compare(const ssh_key k1,
                         return 1;
                     }
                 }
-
                 break;
             }
-#endif
+#endif /* HAVE_OPENSSL_ECC */
+#endif /* OPENSSL_VERSION_NUMBER */
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * else
+ */
+#if 0
+            rc = EVP_PKEY_eq(k1->key, k2->key);
+            if (rc != 1) {
+                return 1;
+            }
+            break;
+#endif /* OPENSSL_VERSION_NUMBER */
         case SSH_KEYTYPE_ED25519:
-            /* ed25519 keys handled globaly */
+        case SSH_KEYTYPE_SK_ED25519:
+            /* ed25519 keys handled globally */
         case SSH_KEYTYPE_UNKNOWN:
         default:
             return 1;
     }
-
     return 0;
 }
 
@@ -732,26 +1127,31 @@ ssh_string pki_private_key_to_pem(const ssh_key key,
 
     switch (key->type) {
         case SSH_KEYTYPE_DSS:
-            pkey = EVP_PKEY_new();
-            if (pkey == NULL) {
-                goto err;
-            }
-
-            rc = EVP_PKEY_set1_DSA(pkey, key->dsa);
-            break;
         case SSH_KEYTYPE_RSA:
         case SSH_KEYTYPE_RSA1:
-            pkey = EVP_PKEY_new();
-            if (pkey == NULL) {
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * Delete this part, because it is done below HAVE_ECC
+ */
+            rc = EVP_PKEY_up_ref(key->key);
+            if (rc != 1) {
                 goto err;
             }
+            pkey = key->key;
 
-            rc = EVP_PKEY_set1_RSA(pkey, key->rsa);
+            /* Mark the operation as successful as for the other key types */
+            rc = 1;
+
             break;
-#ifdef HAVE_ECC
         case SSH_KEYTYPE_ECDSA_P256:
         case SSH_KEYTYPE_ECDSA_P384:
         case SSH_KEYTYPE_ECDSA_P521:
+#ifdef HAVE_ECC
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER < 0x30000000L
+ */
+#if 1
             pkey = EVP_PKEY_new();
             if (pkey == NULL) {
                 goto err;
@@ -759,9 +1159,26 @@ ssh_string pki_private_key_to_pem(const ssh_key key,
 
             rc = EVP_PKEY_set1_EC_KEY(pkey, key->ecdsa);
             break;
-#endif
+#endif /* OPENSSL_VERSION_NUMBER */
+#endif /* HAVE_ECC */
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER >= 0x30000000L
+ */
+#if 0
+            rc = EVP_PKEY_up_ref(key->key);
+            if (rc != 1) {
+                goto err;
+            }
+            pkey = key->key;
+
+            /* Mark the operation as successful as for the other key types */
+            rc = 1;
+
+            break;
+#endif /* OPENSSL_VERSION_NUMBER */
         case SSH_KEYTYPE_ED25519:
-#ifdef HAVE_OPENSSL_ED25519
+#ifdef HAVE_LIBCRYPTO
             /* In OpenSSL, the input is the private key seed only, which means
              * the first half of the SSH private key (the second half is the
              * public key) */
@@ -779,9 +1196,9 @@ ssh_string pki_private_key_to_pem(const ssh_key key,
             rc = 1;
             break;
 #else
-            SSH_LOG(SSH_LOG_WARN, "PEM output not supported for key type ssh-ed25519");
+            SSH_LOG(SSH_LOG_TRACE, "PEM output not supported for key type ssh-ed25519");
             goto err;
-#endif
+#endif /* HAVE_LIBCRYPTO */
         case SSH_KEYTYPE_DSS_CERT01:
         case SSH_KEYTYPE_RSA_CERT01:
         case SSH_KEYTYPE_ECDSA_P256_CERT01:
@@ -790,11 +1207,11 @@ ssh_string pki_private_key_to_pem(const ssh_key key,
         case SSH_KEYTYPE_ED25519_CERT01:
         case SSH_KEYTYPE_UNKNOWN:
         default:
-            SSH_LOG(SSH_LOG_WARN, "Unknown or invalid private key type %d", key->type);
+            SSH_LOG(SSH_LOG_TRACE, "Unknown or invalid private key type %d", key->type);
             goto err;
     }
     if (rc != 1) {
-        SSH_LOG(SSH_LOG_WARN, "Failed to initialize EVP_PKEY structure");
+        SSH_LOG(SSH_LOG_TRACE, "Failed to initialize EVP_PKEY structure");
         goto err;
     }
 
@@ -831,7 +1248,12 @@ ssh_string pki_private_key_to_pem(const ssh_key key,
         goto err;
     }
 
-    ssh_string_fill(blob, buf->data, buf->length);
+    rc = ssh_string_fill(blob, buf->data, buf->length);
+    if (rc < 0) {
+        ssh_string_free(blob);
+        goto err;
+    }
+
     BIO_free(mem);
 
     return blob;
@@ -848,20 +1270,18 @@ ssh_key pki_private_key_from_base64(const char *b64_key,
                                     void *auth_data)
 {
     BIO *mem = NULL;
-    DSA *dsa = NULL;
-    RSA *rsa = NULL;
-#ifdef HAVE_OPENSSL_ED25519
-    uint8_t *ed25519 = NULL;
-#else
-    ed25519_privkey *ed25519 = NULL;
-#endif
-    ssh_key key = NULL;
-    enum ssh_keytypes_e type = SSH_KEYTYPE_UNKNOWN;
 #ifdef HAVE_OPENSSL_ECC
     EC_KEY *ecdsa = NULL;
 #else
     void *ecdsa = NULL;
-#endif
+#endif /* HAVE_OPENSSL_ECC */
+#ifdef HAVE_LIBCRYPTO
+    uint8_t *ed25519 = NULL;
+#else
+    ed25519_privkey *ed25519 = NULL;
+#endif /* HAVE_LIBCRYPTO */
+    ssh_key key = NULL;
+    enum ssh_keytypes_e type = SSH_KEYTYPE_UNKNOWN;
     EVP_PKEY *pkey = NULL;
 
     mem = BIO_new_mem_buf((void*)b64_key, -1);
@@ -882,53 +1302,57 @@ ssh_key pki_private_key_from_base64(const char *b64_key,
     BIO_free(mem);
 
     if (pkey == NULL) {
-        SSH_LOG(SSH_LOG_WARN,
-                "Parsing private key: %s",
+        SSH_LOG(SSH_LOG_TRACE,
+                "Error parsing private key: %s",
                 ERR_error_string(ERR_get_error(), NULL));
         return NULL;
     }
     switch (EVP_PKEY_base_id(pkey)) {
     case EVP_PKEY_DSA:
-        dsa = EVP_PKEY_get1_DSA(pkey);
-        if (dsa == NULL) {
-            SSH_LOG(SSH_LOG_WARN,
-                    "Parsing private key: %s",
-                    ERR_error_string(ERR_get_error(),NULL));
-            goto fail;
-        }
         type = SSH_KEYTYPE_DSS;
         break;
     case EVP_PKEY_RSA:
-        rsa = EVP_PKEY_get1_RSA(pkey);
-        if (rsa == NULL) {
-            SSH_LOG(SSH_LOG_WARN,
-                    "Parsing private key: %s",
-                    ERR_error_string(ERR_get_error(),NULL));
-            goto fail;
-        }
         type = SSH_KEYTYPE_RSA;
         break;
     case EVP_PKEY_EC:
 #ifdef HAVE_OPENSSL_ECC
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER < 0x30000000L
+ */
+#if 1
         ecdsa = EVP_PKEY_get1_EC_KEY(pkey);
         if (ecdsa == NULL) {
-            SSH_LOG(SSH_LOG_WARN,
-                    "Parsing private key: %s",
+            SSH_LOG(SSH_LOG_TRACE,
+		    "Error parsing private key: %s",
                     ERR_error_string(ERR_get_error(), NULL));
             goto fail;
         }
+#endif /* OPENSSL_VERSION_NUMBER */
 
         /* pki_privatekey_type_from_string always returns P256 for ECDSA
          * keys, so we need to figure out the correct type here */
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER < 0x30000000L
+ */
+#if 1
         type = pki_key_ecdsa_to_key_type(ecdsa);
+#else
+        type = pki_key_ecdsa_to_key_type(pkey);
+#endif /* OPENSSL_VERSION_NUMBER */
         if (type == SSH_KEYTYPE_UNKNOWN) {
-            SSH_LOG(SSH_LOG_WARN, "Invalid private key.");
+            SSH_LOG(SSH_LOG_TRACE, "Invalid private key.");
             goto fail;
         }
 
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * Remove these three lines
+ */
         break;
-#endif
-#ifdef HAVE_OPENSSL_ED25519
+#endif /* HAVE_OPENSSL_ECC */
+#ifdef HAVE_LIBCRYPTO
     case EVP_PKEY_ED25519:
     {
         size_t key_len;
@@ -949,7 +1373,7 @@ ssh_key pki_private_key_from_base64(const char *b64_key,
 
         ed25519 = malloc(key_len);
         if (ed25519 == NULL) {
-            SSH_LOG(SSH_LOG_WARN, "Out of memory");
+            SSH_LOG(SSH_LOG_TRACE, "Out of memory");
             goto fail;
         }
 
@@ -962,16 +1386,16 @@ ssh_key pki_private_key_from_base64(const char *b64_key,
             goto fail;
         }
         type = SSH_KEYTYPE_ED25519;
+
     }
     break;
-#endif
+#endif /* HAVE_LIBCRYPTO */
     default:
-        EVP_PKEY_free(pkey);
-        SSH_LOG(SSH_LOG_WARN, "Unknown or invalid private key type %d",
+        SSH_LOG(SSH_LOG_TRACE, "Unknown or invalid private key type %d",
                 EVP_PKEY_base_id(pkey));
+        EVP_PKEY_free(pkey);
         return NULL;
     }
-    EVP_PKEY_free(pkey);
 
     key = ssh_key_new();
     if (key == NULL) {
@@ -981,26 +1405,39 @@ ssh_key pki_private_key_from_base64(const char *b64_key,
     key->type = type;
     key->type_c = ssh_key_type_to_char(type);
     key->flags = SSH_KEY_FLAG_PRIVATE | SSH_KEY_FLAG_PUBLIC;
-    key->dsa = dsa;
-    key->rsa = rsa;
+    key->key = pkey;
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * Move key->ecdsa line into the #if above this
+ */
     key->ecdsa = ecdsa;
     key->ed25519_privkey = ed25519;
 #ifdef HAVE_OPENSSL_ECC
     if (is_ecdsa_key_type(key->type)) {
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER < 0x30000000L
+ */
+#if 1
         key->ecdsa_nid = pki_key_ecdsa_to_nid(key->ecdsa);
+#else
+        key->ecdsa_nid = pki_key_ecdsa_to_nid(key->key);
+#endif /* OPENSSL_VERSION_NUMBER */
     }
-#endif
+#endif /* HAVE_OPENSSL_ECC */
 
     return key;
 fail:
     EVP_PKEY_free(pkey);
     ssh_key_free(key);
-    DSA_free(dsa);
-    RSA_free(rsa);
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * Move HAVE_OPENSSL_ECC #ifdef inside the #if above
+ */
 #ifdef HAVE_OPENSSL_ECC
     EC_KEY_free(ecdsa);
 #endif
-#ifdef HAVE_OPENSSL_ED25519
+#ifdef HAVE_LIBCRYPTO
     SAFE_FREE(ed25519);
 #endif
     return NULL;
@@ -1015,11 +1452,17 @@ int pki_privkey_build_dss(ssh_key key,
 {
     int rc;
     BIGNUM *bp, *bq, *bg, *bpub_key, *bpriv_key;
-
-    key->dsa = DSA_new();
-    if (key->dsa == NULL) {
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    OSSL_PARAM_BLD *param_bld = OSSL_PARAM_BLD_new();
+    if (param_bld == NULL) {
         return SSH_ERROR;
     }
+#else
+    DSA *key_dsa = DSA_new();
+    if (key_dsa == NULL) {
+        return SSH_ERROR;
+    }
+#endif /* OPENSSL_VERSION_NUMBER */
 
     bp = ssh_make_string_bn(p);
     bq = ssh_make_string_bn(q);
@@ -1028,25 +1471,77 @@ int pki_privkey_build_dss(ssh_key key,
     bpriv_key = ssh_make_string_bn(privkey);
     if (bp == NULL || bq == NULL ||
         bg == NULL || bpub_key == NULL) {
+        rc = SSH_ERROR;
         goto fail;
     }
 
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
     /* Memory management of bp, qq and bg is transferred to DSA object */
-    rc = DSA_set0_pqg(key->dsa, bp, bq, bg);
+    rc = DSA_set0_pqg(key_dsa, bp, bq, bg);
     if (rc == 0) {
         goto fail;
     }
 
     /* Memory management of bpub_key and bpriv_key is transferred to DSA object */
-    rc = DSA_set0_key(key->dsa, bpub_key, bpriv_key);
+    rc = DSA_set0_key(key_dsa, bpub_key, bpriv_key);
     if (rc == 0) {
+        goto fail;
+    }
+
+    key->key = EVP_PKEY_new();
+    if (key->key == NULL) {
+        goto fail;
+    }
+
+    rc = EVP_PKEY_assign_DSA(key->key, key_dsa);
+    if (rc != 1) {
         goto fail;
     }
 
     return SSH_OK;
 fail:
-    DSA_free(key->dsa);
+    EVP_PKEY_free(key->key);
+    DSA_free(key_dsa);
     return SSH_ERROR;
+#else
+    rc = OSSL_PARAM_BLD_push_BN(param_bld, OSSL_PKEY_PARAM_FFC_P, bp);
+    if (rc != 1) {
+        rc = SSH_ERROR;
+        goto fail;
+    }
+    rc = OSSL_PARAM_BLD_push_BN(param_bld, OSSL_PKEY_PARAM_FFC_Q, bq);
+    if (rc != 1) {
+        rc = SSH_ERROR;
+        goto fail;
+    }
+    rc = OSSL_PARAM_BLD_push_BN(param_bld, OSSL_PKEY_PARAM_FFC_G, bg);
+    if (rc != 1) {
+        rc = SSH_ERROR;
+        goto fail;
+    }
+    rc = OSSL_PARAM_BLD_push_BN(param_bld, OSSL_PKEY_PARAM_PUB_KEY, bpub_key);
+    if (rc != 1) {
+        rc = SSH_ERROR;
+        goto fail;
+    }
+    rc = OSSL_PARAM_BLD_push_BN(param_bld, OSSL_PKEY_PARAM_PRIV_KEY, bpriv_key);
+    if (rc != 1) {
+        rc = SSH_ERROR;
+        goto fail;
+    }
+
+    rc = evp_build_pkey("DSA", param_bld, &(key->key), EVP_PKEY_KEYPAIR);
+
+fail:
+    OSSL_PARAM_BLD_free(param_bld);
+    bignum_safe_free(bp);
+    bignum_safe_free(bq);
+    bignum_safe_free(bg);
+    bignum_safe_free(bpub_key);
+    bignum_safe_free(bpriv_key);
+
+    return rc;
+#endif /* OPENSSL_VERSION_NUMBER */
 }
 
 int pki_pubkey_build_dss(ssh_key key,
@@ -1056,11 +1551,17 @@ int pki_pubkey_build_dss(ssh_key key,
                          ssh_string pubkey) {
     int rc;
     BIGNUM *bp = NULL, *bq = NULL, *bg = NULL, *bpub_key = NULL;
-
-    key->dsa = DSA_new();
-    if (key->dsa == NULL) {
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    OSSL_PARAM_BLD *param_bld = OSSL_PARAM_BLD_new();
+    if (param_bld == NULL) {
         return SSH_ERROR;
     }
+#else
+    DSA *key_dsa = DSA_new();
+    if (key_dsa == NULL) {
+        return SSH_ERROR;
+    }
+#endif /* OPENSSL_VERSION_NUMBER */
 
     bp = ssh_make_string_bn(p);
     bq = ssh_make_string_bn(q);
@@ -1068,25 +1569,71 @@ int pki_pubkey_build_dss(ssh_key key,
     bpub_key = ssh_make_string_bn(pubkey);
     if (bp == NULL || bq == NULL ||
         bg == NULL || bpub_key == NULL) {
+        rc = SSH_ERROR;
         goto fail;
     }
 
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
     /* Memory management of bp, bq and bg is transferred to DSA object */
-    rc = DSA_set0_pqg(key->dsa, bp, bq, bg);
+    rc = DSA_set0_pqg(key_dsa, bp, bq, bg);
     if (rc == 0) {
         goto fail;
     }
 
     /* Memory management of npub_key is transferred to DSA object */
-    rc = DSA_set0_key(key->dsa, bpub_key, NULL);
+    rc = DSA_set0_key(key_dsa, bpub_key, NULL);
     if (rc == 0) {
+        goto fail;
+    }
+
+    key->key = EVP_PKEY_new();
+    if (key->key == NULL) {
+        goto fail;
+    }
+
+    rc = EVP_PKEY_assign_DSA(key->key, key_dsa);
+    if (rc != 1) {
         goto fail;
     }
 
     return SSH_OK;
 fail:
-    DSA_free(key->dsa);
+    EVP_PKEY_free(key->key);
+    DSA_free(key_dsa);
     return SSH_ERROR;
+#else
+    rc = OSSL_PARAM_BLD_push_BN(param_bld, OSSL_PKEY_PARAM_FFC_P, bp);
+    if (rc != 1) {
+        rc = SSH_ERROR;
+        goto fail;
+    }
+    rc = OSSL_PARAM_BLD_push_BN(param_bld, OSSL_PKEY_PARAM_FFC_Q, bq);
+    if (rc != 1) {
+        rc = SSH_ERROR;
+        goto fail;
+    }
+    rc = OSSL_PARAM_BLD_push_BN(param_bld, OSSL_PKEY_PARAM_FFC_G, bg);
+    if (rc != 1) {
+        rc = SSH_ERROR;
+        goto fail;
+    }
+    rc = OSSL_PARAM_BLD_push_BN(param_bld, OSSL_PKEY_PARAM_PUB_KEY, bpub_key);
+    if (rc != 1) {
+        rc = SSH_ERROR;
+        goto fail;
+    }
+
+    rc = evp_build_pkey("DSA", param_bld, &(key->key), EVP_PKEY_PUBLIC_KEY);
+
+fail:
+    OSSL_PARAM_BLD_free(param_bld);
+    bignum_safe_free(bp);
+    bignum_safe_free(bq);
+    bignum_safe_free(bg);
+    bignum_safe_free(bpub_key);
+
+    return rc;
+#endif /* OPENSSL_VERSION_NUMBER */
 }
 
 int pki_privkey_build_rsa(ssh_key key,
@@ -1099,11 +1646,17 @@ int pki_privkey_build_rsa(ssh_key key,
 {
     int rc;
     BIGNUM *be, *bn, *bd/*, *biqmp*/, *bp, *bq;
-
-    key->rsa = RSA_new();
-    if (key->rsa == NULL) {
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    OSSL_PARAM_BLD *param_bld = OSSL_PARAM_BLD_new();
+    if (param_bld == NULL) {
         return SSH_ERROR;
     }
+#else
+    RSA *key_rsa = RSA_new();
+    if (key_rsa == NULL) {
+        return SSH_ERROR;
+    }
+#endif /* OPENSSL_VERSION_NUMBER */
 
     bn = ssh_make_string_bn(n);
     be = ssh_make_string_bn(e);
@@ -1113,17 +1666,19 @@ int pki_privkey_build_rsa(ssh_key key,
     bq = ssh_make_string_bn(q);
     if (be == NULL || bn == NULL || bd == NULL ||
         /*biqmp == NULL ||*/ bp == NULL || bq == NULL) {
+        rc = SSH_ERROR;
         goto fail;
     }
 
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
     /* Memory management of be, bn and bd is transferred to RSA object */
-    rc = RSA_set0_key(key->rsa, bn, be, bd);
+    rc = RSA_set0_key(key_rsa, bn, be, bd);
     if (rc == 0) {
         goto fail;
     }
 
     /* Memory management of bp and bq is transferred to RSA object */
-    rc = RSA_set0_factors(key->rsa, bp, bq);
+    rc = RSA_set0_factors(key_rsa, bp, bq);
     if (rc == 0) {
         goto fail;
     }
@@ -1135,10 +1690,66 @@ int pki_privkey_build_rsa(ssh_key key,
     /* RSA_set0_crt_params(key->rsa, biqmp, NULL, NULL);
     TODO calculate missing crt_params */
 
+    key->key = EVP_PKEY_new();
+    if (key->key == NULL) {
+        goto fail;
+    }
+
+    rc = EVP_PKEY_assign_RSA(key->key, key_rsa);
+    if (rc != 1) {
+        goto fail;
+    }
+
     return SSH_OK;
 fail:
-    RSA_free(key->rsa);
+    RSA_free(key_rsa);
+    EVP_PKEY_free(key->key);
     return SSH_ERROR;
+#else
+    rc = OSSL_PARAM_BLD_push_BN(param_bld, OSSL_PKEY_PARAM_RSA_N, bn);
+    if (rc != 1) {
+        rc = SSH_ERROR;
+        goto fail;
+    }
+    rc = OSSL_PARAM_BLD_push_BN(param_bld, OSSL_PKEY_PARAM_RSA_E, be);
+    if (rc != 1) {
+        rc = SSH_ERROR;
+        goto fail;
+    }
+    rc = OSSL_PARAM_BLD_push_BN(param_bld, OSSL_PKEY_PARAM_RSA_D, bd);
+    if (rc != 1) {
+        rc = SSH_ERROR;
+        goto fail;
+    }
+
+    rc = evp_build_pkey("RSA", param_bld, &(key->key), EVP_PKEY_KEYPAIR);
+    if (rc != SSH_OK) {
+        rc = SSH_ERROR;
+        goto fail;
+    }
+
+    rc = EVP_PKEY_set_bn_param(key->key, OSSL_PKEY_PARAM_RSA_FACTOR1, bp);
+    if (rc != 1) {
+        rc = SSH_ERROR;
+        goto fail;
+    }
+
+    rc = EVP_PKEY_set_bn_param(key->key, OSSL_PKEY_PARAM_RSA_FACTOR2, bq);
+    if (rc != 1) {
+        rc = SSH_ERROR;
+        goto fail;
+    }
+
+fail:
+    OSSL_PARAM_BLD_free(param_bld);
+    bignum_safe_free(bn);
+    bignum_safe_free(be);
+    bignum_safe_free(bd);
+    bignum_safe_free(bp);
+    bignum_safe_free(bq);
+
+    return rc;
+#endif /* OPENSSL_VERSION_NUMBER */
 }
 
 int pki_pubkey_build_rsa(ssh_key key,
@@ -1146,28 +1757,68 @@ int pki_pubkey_build_rsa(ssh_key key,
                          ssh_string n) {
     int rc;
     BIGNUM *be = NULL, *bn = NULL;
-
-    key->rsa = RSA_new();
-    if (key->rsa == NULL) {
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    OSSL_PARAM_BLD *param_bld = OSSL_PARAM_BLD_new();
+    if (param_bld == NULL) {
         return SSH_ERROR;
     }
+#else
+    RSA *key_rsa = RSA_new();
+    if (key_rsa == NULL) {
+        return SSH_ERROR;
+    }
+#endif /* OPENSSL_VERSION_NUMBER */
 
     be = ssh_make_string_bn(e);
     bn = ssh_make_string_bn(n);
     if (be == NULL || bn == NULL) {
+        rc = SSH_ERROR;
         goto fail;
     }
 
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
     /* Memory management of bn and be is transferred to RSA object */
-    rc = RSA_set0_key(key->rsa, bn, be, NULL);
+    rc = RSA_set0_key(key_rsa, bn, be, NULL);
     if (rc == 0) {
+        goto fail;
+    }
+
+    key->key = EVP_PKEY_new();
+    if (key->key == NULL) {
+        goto fail;
+    }
+
+    rc = EVP_PKEY_assign_RSA(key->key, key_rsa);
+    if (rc != 1) {
         goto fail;
     }
 
     return SSH_OK;
 fail:
-    RSA_free(key->rsa);
+    EVP_PKEY_free(key->key);
+    RSA_free(key_rsa);
     return SSH_ERROR;
+#else
+    rc = OSSL_PARAM_BLD_push_BN(param_bld, OSSL_PKEY_PARAM_RSA_N, bn);
+    if (rc != 1) {
+        rc = SSH_ERROR;
+        goto fail;
+    }
+    rc = OSSL_PARAM_BLD_push_BN(param_bld, OSSL_PKEY_PARAM_RSA_E, be);
+    if (rc != 1) {
+        rc = SSH_ERROR;
+        goto fail;
+    }
+
+    rc = evp_build_pkey("RSA", param_bld, &(key->key), EVP_PKEY_PUBLIC_KEY);
+
+fail:
+    OSSL_PARAM_BLD_free(param_bld);
+    bignum_safe_free(bn);
+    bignum_safe_free(be);
+
+    return rc;
+#endif /* OPENSSL_VERSION_NUMBER */
 }
 
 ssh_string pki_publickey_to_blob(const ssh_key key)
@@ -1181,6 +1832,11 @@ ssh_string pki_publickey_to_blob(const ssh_key key)
     ssh_string g = NULL;
     ssh_string q = NULL;
     int rc;
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    BIGNUM *bp = NULL, *bq = NULL, *bg = NULL, *bpub_key = NULL,
+           *bn = NULL, *be = NULL;
+    OSSL_PARAM *params = NULL;
+#endif /* OPENSSL_VERSION_NUMBER */
 
     buffer = ssh_buffer_new();
     if (buffer == NULL) {
@@ -1211,8 +1867,54 @@ ssh_string pki_publickey_to_blob(const ssh_key key)
 
     switch (key->type) {
         case SSH_KEYTYPE_DSS: {
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
             const BIGNUM *bp, *bq, *bg, *bpub_key;
-            DSA_get0_pqg(key->dsa, &bp, &bq, &bg);
+            const DSA *key_dsa = EVP_PKEY_get0_DSA(key->key);
+            DSA_get0_pqg(key_dsa, &bp, &bq, &bg);
+            DSA_get0_key(key_dsa, &bpub_key, NULL);
+#else
+            const OSSL_PARAM *out_param = NULL;
+            rc = EVP_PKEY_todata(key->key, EVP_PKEY_PUBLIC_KEY, &params);
+            if (rc != 1) {
+                goto fail;
+            }
+            out_param = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_FFC_P);
+            if (out_param == NULL) {
+                SSH_LOG(SSH_LOG_TRACE, "DSA: No param P has been found");
+                goto fail;
+            }
+            rc = OSSL_PARAM_get_BN(out_param, &bp);
+            if (rc != 1) {
+                goto fail;
+            }
+            out_param = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_FFC_Q);
+            if (out_param == NULL) {
+                SSH_LOG(SSH_LOG_TRACE, "DSA: No param Q has been found");
+                goto fail;
+            }
+            rc = OSSL_PARAM_get_BN(out_param, &bq);
+            if (rc != 1) {
+                goto fail;
+            }
+            out_param = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_FFC_G);
+            if (out_param == NULL) {
+                SSH_LOG(SSH_LOG_TRACE, "DSA: No param G has been found");
+                goto fail;
+            }
+            rc = OSSL_PARAM_get_BN(out_param, &bg);
+            if (rc != 1) {
+                goto fail;
+            }
+            out_param = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_PUB_KEY);
+            if (out_param == NULL) {
+                SSH_LOG(SSH_LOG_TRACE, "DSA: No param PUB_KEY has been found");
+                goto fail;
+            }
+            rc = OSSL_PARAM_get_BN(out_param, &bpub_key);
+            if (rc != 1) {
+                goto fail;
+            }
+#endif /* OPENSSL_VERSION_NUMBER */
             p = ssh_make_bignum_string((BIGNUM *)bp);
             if (p == NULL) {
                 goto fail;
@@ -1228,7 +1930,6 @@ ssh_string pki_publickey_to_blob(const ssh_key key)
                 goto fail;
             }
 
-            DSA_get0_key(key->dsa, &bpub_key, NULL);
             n = ssh_make_bignum_string((BIGNUM *)bpub_key);
             if (n == NULL) {
                 goto fail;
@@ -1259,13 +1960,47 @@ ssh_string pki_publickey_to_blob(const ssh_key key)
             ssh_string_burn(n);
             SSH_STRING_FREE(n);
             n = NULL;
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+            bignum_safe_free(bp);
+            bignum_safe_free(bq);
+            bignum_safe_free(bg);
+            bignum_safe_free(bpub_key);
+            OSSL_PARAM_free(params);
+#endif /* OPENSSL_VERSION_NUMBER */
 
             break;
         }
         case SSH_KEYTYPE_RSA:
         case SSH_KEYTYPE_RSA1: {
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
             const BIGNUM *be, *bn;
-            RSA_get0_key(key->rsa, &bn, &be, NULL);
+            const RSA *key_rsa = EVP_PKEY_get0_RSA(key->key);
+            RSA_get0_key(key_rsa, &bn, &be, NULL);
+#else
+            const OSSL_PARAM *out_param = NULL;
+            rc = EVP_PKEY_todata(key->key, EVP_PKEY_PUBLIC_KEY, &params);
+            if (rc != 1) {
+                goto fail;
+            }
+            out_param = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_RSA_E);
+            if (out_param == NULL) {
+                SSH_LOG(SSH_LOG_TRACE, "RSA: No param E has been found");
+                goto fail;
+            }
+            rc = OSSL_PARAM_get_BN(out_param, &be);
+            if (rc != 1) {
+                goto fail;
+            }
+            out_param = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_RSA_N);
+            if (out_param == NULL) {
+                SSH_LOG(SSH_LOG_TRACE, "RSA: No param N has been found");
+                goto fail;
+            }
+            rc = OSSL_PARAM_get_BN(out_param, &bn);
+            if (rc != 1) {
+                goto fail;
+            }
+#endif /* OPENSSL_VERSION_NUMBER */
             e = ssh_make_bignum_string((BIGNUM *)be);
             if (e == NULL) {
                 goto fail;
@@ -1289,50 +2024,151 @@ ssh_string pki_publickey_to_blob(const ssh_key key)
             ssh_string_burn(n);
             SSH_STRING_FREE(n);
             n = NULL;
-
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+            bignum_safe_free(bn);
+            bignum_safe_free(be);
+            OSSL_PARAM_free(params);
+#endif /* OPENSSL_VERSION_NUMBER */
             break;
         }
         case SSH_KEYTYPE_ED25519:
+        case SSH_KEYTYPE_SK_ED25519:
             rc = pki_ed25519_public_key_to_blob(buffer, key);
             if (rc == SSH_ERROR){
+                goto fail;
+            }
+            if (key->type == SSH_KEYTYPE_SK_ED25519 &&
+                ssh_buffer_add_ssh_string(buffer, key->sk_application) < 0) {
                 goto fail;
             }
             break;
         case SSH_KEYTYPE_ECDSA_P256:
         case SSH_KEYTYPE_ECDSA_P384:
         case SSH_KEYTYPE_ECDSA_P521:
+        case SSH_KEYTYPE_SK_ECDSA:
 #ifdef HAVE_OPENSSL_ECC
-            type_s = ssh_string_from_char(pki_key_ecdsa_nid_to_char(key->ecdsa_nid));
-            if (type_s == NULL) {
-                SSH_BUFFER_FREE(buffer);
-                return NULL;
-            }
+            {
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER >= 0x30000000L
+ */
+#if 0
+                const void *pubkey;
+                size_t pubkey_len;
+                OSSL_PARAM *params, *locate_param;
+#endif /* OPENSSL_VERSION_NUMBER */
 
-            rc = ssh_buffer_add_ssh_string(buffer, type_s);
-            SSH_STRING_FREE(type_s);
-            if (rc < 0) {
-                SSH_BUFFER_FREE(buffer);
-                return NULL;
-            }
+                type_s = ssh_string_from_char(pki_key_ecdsa_nid_to_char(key->ecdsa_nid));
+                if (type_s == NULL) {
+                    SSH_BUFFER_FREE(buffer);
+                    return NULL;
+                }
 
-            e = make_ecpoint_string(EC_KEY_get0_group(key->ecdsa),
-                                    EC_KEY_get0_public_key(key->ecdsa));
-            if (e == NULL) {
-                SSH_BUFFER_FREE(buffer);
-                return NULL;
-            }
+                rc = ssh_buffer_add_ssh_string(buffer, type_s);
+                SSH_STRING_FREE(type_s);
+                if (rc < 0) {
+                    SSH_BUFFER_FREE(buffer);
+                    return NULL;
+                }
 
-            rc = ssh_buffer_add_ssh_string(buffer, e);
-            if (rc < 0) {
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER < 0x30000000L
+ */
+#if 1
+#ifdef WITH_PKCS11_URI
+            if (ssh_key_is_private(key) && !EC_KEY_get0_public_key(key->ecdsa)) {
+                SSH_LOG(SSH_LOG_TRACE, "It is mandatory to have separate public"
+                        " ECDSA key objects in the PKCS #11 device. Unlike RSA,"
+                        " ECDSA public keys cannot be derived from their private keys.");
+                goto fail;
+            }
+#endif /* WITH_PKCS11_URI */
+                e = make_ecpoint_string(EC_KEY_get0_group(key->ecdsa),
+                                        EC_KEY_get0_public_key(key->ecdsa));
+#else
+                rc = ssh_buffer_add_ssh_string(buffer, type_s);
+                SSH_STRING_FREE(type_s);
+                if (rc < 0) {
+                    SSH_BUFFER_FREE(buffer);
+                    return NULL;
+                }
+
+                rc = EVP_PKEY_todata(key->key, EVP_PKEY_PUBLIC_KEY, &params);
+                if (rc < 0) {
+                    OSSL_PARAM_free(params);
+                    goto fail;
+                }
+
+                locate_param = OSSL_PARAM_locate(params, OSSL_PKEY_PARAM_PUB_KEY);
+#ifdef WITH_PKCS11_URI
+                if (ssh_key_is_private(key) && !locate_param) {
+                    SSH_LOG(SSH_LOG_TRACE, "It is mandatory to have separate"
+                            " public ECDSA key objects in the PKCS #11 device."
+                            " Unlike RSA, ECDSA public keys cannot be derived"
+                            " from their private keys.");
+                    goto fail;
+                }
+#endif /* WITH_PKCS11_URI */
+
+                rc = OSSL_PARAM_get_octet_string_ptr(locate_param, &pubkey, &pubkey_len);
+                if (rc != 1) {
+                    OSSL_PARAM_free(params);
+                    OSSL_PARAM_free(locate_param);
+                    goto fail;
+                }
+
+                e = ssh_string_new(pubkey_len);
+#endif /* OPENSSL_VERSION_NUMBER */
+                if (e == NULL) {
+                    SSH_BUFFER_FREE(buffer);
+                    return NULL;
+                }
+
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER >= 0x30000000L
+ */
+#if 0
+                if (memcpy(ssh_string_data(e), pubkey, pubkey_len) == NULL) {
+                    OSSL_PARAM_free(params);
+                    OSSL_PARAM_free(locate_param);
+                    goto fail;
+                }
+#endif /* OPENSSL_VERSION_NUMBER */
+                rc = ssh_buffer_add_ssh_string(buffer, e);
+                if (rc < 0) {
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER >= 0x30000000L
+ */
+#if 0
+                    OSSL_PARAM_free(params);
+                    OSSL_PARAM_free(locate_param);
+#endif /* OPENSSL_VERSION_NUMBER */
+                    goto fail;
+                }
+
+                ssh_string_burn(e);
+                SSH_STRING_FREE(e);
+                e = NULL;
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER >= 0x30000000L
+ */
+#if 0
+                OSSL_PARAM_free(params);
+                OSSL_PARAM_free(locate_param);
+#endif /* OPENSSL_VERSION_NUMBER */
+
+            if (key->type == SSH_KEYTYPE_SK_ECDSA &&
+                ssh_buffer_add_ssh_string(buffer, key->sk_application) < 0) {
                 goto fail;
             }
 
-            ssh_string_burn(e);
-            SSH_STRING_FREE(e);
-            e = NULL;
-
-            break;
-#endif
+                break;
+            }
+#endif /* HAVE_OPENSSL_ECC */
         case SSH_KEYTYPE_UNKNOWN:
         default:
             goto fail;
@@ -1365,6 +2201,15 @@ fail:
     SSH_STRING_FREE(q);
     ssh_string_burn(n);
     SSH_STRING_FREE(n);
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    bignum_safe_free(bp);
+    bignum_safe_free(bq);
+    bignum_safe_free(bg);
+    bignum_safe_free(bpub_key);
+    bignum_safe_free(bn);
+    bignum_safe_free(be);
+    OSSL_PARAM_free(params);
+#endif /* OPENSSL_VERSION_NUMBER */
 
     return NULL;
 }
@@ -1376,13 +2221,14 @@ static ssh_string pki_dsa_signature_to_blob(const ssh_signature sig)
     const BIGNUM *pr = NULL, *ps = NULL;
 
     ssh_string r = NULL;
-    int r_len, r_offset_in, r_offset_out;
+    size_t r_len, r_offset_in, r_offset_out;
 
     ssh_string s = NULL;
-    int s_len, s_offset_in, s_offset_out;
+    size_t s_len, s_offset_in, s_offset_out;
 
     const unsigned char *raw_sig_data = NULL;
     size_t raw_sig_len;
+    int rc;
 
     DSA_SIG *dsa_sig;
 
@@ -1439,7 +2285,11 @@ static ssh_string pki_dsa_signature_to_blob(const ssh_signature sig)
         return NULL;
     }
 
-    ssh_string_fill(sig_blob, buffer, 40);
+    rc = ssh_string_fill(sig_blob, buffer, 40);
+    if (rc < 0) {
+        SSH_STRING_FREE(sig_blob);
+        return NULL;
+    }
 
     return sig_blob;
 
@@ -1516,7 +2366,10 @@ static ssh_string pki_ecdsa_signature_to_blob(const ssh_signature sig)
         goto error;
     }
 
-    ssh_string_fill(sig_blob, ssh_buffer_get(buf), ssh_buffer_get_len(buf));
+    rc = ssh_string_fill(sig_blob, ssh_buffer_get(buf), ssh_buffer_get_len(buf));
+    if (rc < 0) {
+        goto error;
+    }
 
     SSH_STRING_FREE(r);
     SSH_STRING_FREE(s);
@@ -1526,6 +2379,7 @@ static ssh_string pki_ecdsa_signature_to_blob(const ssh_signature sig)
     return sig_blob;
 
 error:
+    SSH_STRING_FREE(sig_blob);
     SSH_STRING_FREE(r);
     SSH_STRING_FREE(s);
     ECDSA_SIG_free(ecdsa_sig);
@@ -1554,10 +2408,10 @@ ssh_string pki_signature_to_blob(const ssh_signature sig)
 #ifdef HAVE_OPENSSL_ECC
             sig_blob = pki_ecdsa_signature_to_blob(sig);
             break;
-#endif
+#endif /* HAVE_OPENSSL_ECC */
         default:
         case SSH_KEYTYPE_UNKNOWN:
-            SSH_LOG(SSH_LOG_WARN, "Unknown signature key type: %s", sig->type_c);
+            SSH_LOG(SSH_LOG_TRACE, "Unknown signature key type: %s", sig->type_c);
             return NULL;
     }
 
@@ -1576,14 +2430,25 @@ static int pki_signature_from_rsa_blob(const ssh_key pubkey,
     size_t rsalen = 0;
     size_t len = ssh_string_len(sig_blob);
 
-    if (pubkey->rsa == NULL) {
-        SSH_LOG(SSH_LOG_WARN, "Pubkey RSA field NULL");
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
+    const RSA *rsa = EVP_PKEY_get0_RSA(pubkey->key);
+
+    if (rsa == NULL) {
+        SSH_LOG(SSH_LOG_TRACE, "RSA field NULL");
         goto errout;
     }
 
-    rsalen = RSA_size(pubkey->rsa);
+    rsalen = RSA_size(rsa);
+#else
+    if (EVP_PKEY_get_base_id(pubkey->key) != EVP_PKEY_RSA) {
+        SSH_LOG(SSH_LOG_TRACE, "Key has no RSA pubkey");
+        goto errout;
+    }
+
+    rsalen = EVP_PKEY_size(pubkey->key);
+#endif /* OPENSSL_VERSION_NUMBER */
     if (len > rsalen) {
-        SSH_LOG(SSH_LOG_WARN,
+        SSH_LOG(SSH_LOG_TRACE,
                 "Signature is too big: %lu > %lu",
                 (unsigned long)len,
                 (unsigned long)rsalen);
@@ -1591,9 +2456,9 @@ static int pki_signature_from_rsa_blob(const ssh_key pubkey,
     }
 
 #ifdef DEBUG_CRYPTO
-    SSH_LOG(SSH_LOG_WARN, "RSA signature len: %lu", (unsigned long)len);
+    SSH_LOG(SSH_LOG_DEBUG, "RSA signature len: %lu", (unsigned long)len);
     ssh_log_hexdump("RSA signature", ssh_string_data(sig_blob), len);
-#endif
+#endif /* DEBUG_CRYPTO */
 
     if (len == rsalen) {
         sig->raw_sig = ssh_string_copy(sig_blob);
@@ -1641,11 +2506,11 @@ static int pki_signature_from_dsa_blob(UNUSED_PARAM(const ssh_key pubkey),
     BIGNUM *pr = NULL, *ps = NULL;
 
     ssh_string r;
-    ssh_string s;
+    ssh_string s = NULL;
 
     size_t len;
 
-    int raw_sig_len = 0;
+    size_t raw_sig_len = 0;
     unsigned char *raw_sig_data = NULL;
     unsigned char *temp_raw_sig = NULL;
 
@@ -1655,7 +2520,7 @@ static int pki_signature_from_dsa_blob(UNUSED_PARAM(const ssh_key pubkey),
 
     /* 40 is the dual signature blob len. */
     if (len != 40) {
-        SSH_LOG(SSH_LOG_WARN,
+        SSH_LOG(SSH_LOG_TRACE,
                 "Signature has wrong size: %lu",
                 (unsigned long)len);
         goto error;
@@ -1664,13 +2529,17 @@ static int pki_signature_from_dsa_blob(UNUSED_PARAM(const ssh_key pubkey),
 #ifdef DEBUG_CRYPTO
     ssh_log_hexdump("r", ssh_string_data(sig_blob), 20);
     ssh_log_hexdump("s", (unsigned char *)ssh_string_data(sig_blob) + 20, 20);
-#endif
+#endif /* DEBUG_CRYPTO */
 
     r = ssh_string_new(20);
     if (r == NULL) {
         goto error;
     }
-    ssh_string_fill(r, ssh_string_data(sig_blob), 20);
+    rc = ssh_string_fill(r, ssh_string_data(sig_blob), 20);
+    if (rc < 0) {
+        SSH_STRING_FREE(r);
+        goto error;
+    }
 
     pr = ssh_make_string_bn(r);
     ssh_string_burn(r);
@@ -1683,7 +2552,11 @@ static int pki_signature_from_dsa_blob(UNUSED_PARAM(const ssh_key pubkey),
     if (s == NULL) {
         goto error;
     }
-    ssh_string_fill(s, (char *)ssh_string_data(sig_blob) + 20, 20);
+    rc = ssh_string_fill(s, (char *)ssh_string_data(sig_blob) + 20, 20);
+    if (rc < 0) {
+        SSH_STRING_FREE(s);
+        goto error;
+    }
 
     ps = ssh_make_string_bn(s);
     ssh_string_burn(s);
@@ -1810,7 +2683,7 @@ static int pki_signature_from_ecdsa_blob(UNUSED_PARAM(const ssh_key pubkey),
     if (rlen != 0) {
         ssh_string_burn(s);
         SSH_STRING_FREE(s);
-        SSH_LOG(SSH_LOG_WARN,
+        SSH_LOG(SSH_LOG_TRACE,
                 "Signature has remaining bytes in inner "
                 "sigblob: %lu",
                 (unsigned long)rlen);
@@ -1899,7 +2772,7 @@ ssh_signature pki_signature_from_blob(const ssh_key pubkey,
     int rc;
 
     if (ssh_key_type_plain(pubkey->type) != type) {
-        SSH_LOG(SSH_LOG_WARN,
+        SSH_LOG(SSH_LOG_TRACE,
                 "Incompatible public key provided (%d) expecting (%d)",
                 type,
                 pubkey->type);
@@ -1930,6 +2803,7 @@ ssh_signature pki_signature_from_blob(const ssh_key pubkey,
             }
             break;
         case SSH_KEYTYPE_ED25519:
+        case SSH_KEYTYPE_SK_ED25519:
             rc = pki_signature_from_ed25519_blob(sig, sig_blob);
             if (rc != SSH_OK){
                 goto error;
@@ -1941,6 +2815,8 @@ ssh_signature pki_signature_from_blob(const ssh_key pubkey,
         case SSH_KEYTYPE_ECDSA_P256_CERT01:
         case SSH_KEYTYPE_ECDSA_P384_CERT01:
         case SSH_KEYTYPE_ECDSA_P521_CERT01:
+        case SSH_KEYTYPE_SK_ECDSA:
+        case SSH_KEYTYPE_SK_ECDSA_CERT01:
 #ifdef HAVE_OPENSSL_ECC
             rc = pki_signature_from_ecdsa_blob(pubkey, sig_blob, sig);
             if (rc != SSH_OK) {
@@ -1950,7 +2826,7 @@ ssh_signature pki_signature_from_blob(const ssh_key pubkey,
 #endif
         default:
         case SSH_KEYTYPE_UNKNOWN:
-            SSH_LOG(SSH_LOG_WARN, "Unknown signature type");
+            SSH_LOG(SSH_LOG_TRACE, "Unknown signature type");
             goto error;
     }
 
@@ -1993,36 +2869,28 @@ static const EVP_MD *pki_digest_to_md(enum ssh_digest_e hash_type)
 static EVP_PKEY *pki_key_to_pkey(ssh_key key)
 {
     EVP_PKEY *pkey = NULL;
+    int rc = 0;
 
-    switch(key->type) {
+    switch (key->type) {
     case SSH_KEYTYPE_DSS:
     case SSH_KEYTYPE_DSS_CERT01:
-        if (key->dsa == NULL) {
-            SSH_LOG(SSH_LOG_TRACE, "NULL key->dsa");
-            goto error;
-        }
-        pkey = EVP_PKEY_new();
-        if (pkey == NULL) {
-            SSH_LOG(SSH_LOG_TRACE, "Out of memory");
-            return NULL;
-        }
-
-        EVP_PKEY_set1_DSA(pkey, key->dsa);
-        break;
     case SSH_KEYTYPE_RSA:
     case SSH_KEYTYPE_RSA1:
     case SSH_KEYTYPE_RSA_CERT01:
-        if (key->rsa == NULL) {
-            SSH_LOG(SSH_LOG_TRACE, "NULL key->rsa");
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * Remove this case part from here
+ */
+        if (key->key == NULL) {
+            SSH_LOG(SSH_LOG_TRACE, "NULL key->key");
             goto error;
         }
-        pkey = EVP_PKEY_new();
-        if (pkey == NULL) {
-            SSH_LOG(SSH_LOG_TRACE, "Out of memory");
+        rc = EVP_PKEY_up_ref(key->key);
+        if (rc != 1) {
+            SSH_LOG(SSH_LOG_TRACE, "Failed to reference EVP_PKEY");
             return NULL;
         }
-
-        EVP_PKEY_set1_RSA(pkey, key->rsa);
+        pkey = key->key;
         break;
     case SSH_KEYTYPE_ECDSA_P256:
     case SSH_KEYTYPE_ECDSA_P384:
@@ -2030,7 +2898,14 @@ static EVP_PKEY *pki_key_to_pkey(ssh_key key)
     case SSH_KEYTYPE_ECDSA_P256_CERT01:
     case SSH_KEYTYPE_ECDSA_P384_CERT01:
     case SSH_KEYTYPE_ECDSA_P521_CERT01:
+    case SSH_KEYTYPE_SK_ECDSA:
+    case SSH_KEYTYPE_SK_ECDSA_CERT01:
 # if defined(HAVE_OPENSSL_ECC)
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER < 0x30000000L
+ */
+#if 1
         if (key->ecdsa == NULL) {
             SSH_LOG(SSH_LOG_TRACE, "NULL key->ecdsa");
             goto error;
@@ -2043,10 +2918,30 @@ static EVP_PKEY *pki_key_to_pkey(ssh_key key)
 
         EVP_PKEY_set1_EC_KEY(pkey, key->ecdsa);
         break;
+#endif /* OPENSSL_VERSION_NUMBER */
 # endif
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER >= 0x30000000L
+ */
+#if 0
+        if (key->key == NULL) {
+            SSH_LOG(SSH_LOG_TRACE, "NULL key->key");
+            goto error;
+        }
+        rc = EVP_PKEY_uo_ref(key->key);
+        if (rc != 1) {
+            SSH_LOG(SSH_LOG_TRACE, "Failed to reference EVP_PKEY");
+            return NULL;
+        }
+        pkey = key->key;
+        break;
+#endif /* OPENSSL_VERSION_NUMBER */
     case SSH_KEYTYPE_ED25519:
     case SSH_KEYTYPE_ED25519_CERT01:
-# if defined(HAVE_OPENSSL_ED25519)
+    case SSH_KEYTYPE_SK_ED25519:
+    case SSH_KEYTYPE_SK_ED25519_CERT01:
+# ifdef HAVE_LIBCRYPTO
         if (ssh_key_is_private(key)) {
             if (key->ed25519_privkey == NULL) {
                 SSH_LOG(SSH_LOG_TRACE, "NULL key->ed25519_privkey");
@@ -2092,7 +2987,7 @@ error:
 /**
  * @internal
  *
- * @brief Sign the given input data. The digest of to be signed is calculated
+ * @brief Sign the given input data. The digest to be signed is calculated
  * internally as necessary.
  *
  * @param[in]   privkey     The private key to be used for signing.
@@ -2130,7 +3025,7 @@ ssh_signature pki_sign_data(const ssh_key privkey,
         return NULL;
     }
 
-#ifndef HAVE_OPENSSL_ED25519
+#ifndef HAVE_LIBCRYPTO
     if (privkey->type == SSH_KEYTYPE_ED25519 ||
         privkey->type == SSH_KEYTYPE_ED25519_CERT01)
     {
@@ -2161,7 +3056,7 @@ ssh_signature pki_sign_data(const ssh_key privkey,
     }
 
     /* Create the context */
-    ctx = EVP_MD_CTX_create();
+    ctx = EVP_MD_CTX_new();
     if (ctx == NULL) {
         SSH_LOG(SSH_LOG_TRACE, "Out of memory");
         goto out;
@@ -2176,7 +3071,6 @@ ssh_signature pki_sign_data(const ssh_key privkey,
         goto out;
     }
 
-#ifdef HAVE_OPENSSL_EVP_DIGESTSIGN
     rc = EVP_DigestSign(ctx, raw_sig_data, &raw_sig_len, input, input_len);
     if (rc != 1) {
         SSH_LOG(SSH_LOG_TRACE,
@@ -2184,23 +3078,6 @@ ssh_signature pki_sign_data(const ssh_key privkey,
                 ERR_error_string(ERR_get_error(), NULL));
         goto out;
     }
-#else
-    rc = EVP_DigestSignUpdate(ctx, input, input_len);
-    if (rc != 1) {
-        SSH_LOG(SSH_LOG_TRACE,
-                "EVP_DigestSignUpdate() failed: %s",
-                ERR_error_string(ERR_get_error(), NULL));
-        goto out;
-    }
-
-    rc = EVP_DigestSignFinal(ctx, raw_sig_data, &raw_sig_len);
-    if (rc != 1) {
-        SSH_LOG(SSH_LOG_TRACE,
-                "EVP_DigestSignFinal() failed: %s",
-                ERR_error_string(ERR_get_error(), NULL));
-        goto out;
-    }
-#endif
 
 #ifdef DEBUG_CRYPTO
         ssh_log_hexdump("Generated signature", raw_sig_data, raw_sig_len);
@@ -2238,9 +3115,7 @@ out:
         explicit_bzero(raw_sig_data, raw_sig_len);
     }
     SAFE_FREE(raw_sig_data);
-    if (pkey != NULL) {
-        EVP_PKEY_free(pkey);
-    }
+    EVP_PKEY_free(pkey);
     return sig;
 }
 
@@ -2274,7 +3149,7 @@ int pki_verify_data_signature(ssh_signature signature,
 
     if (pubkey == NULL || ssh_key_is_private(pubkey) || input == NULL ||
         signature == NULL || (signature->raw_sig == NULL
-#ifndef HAVE_OPENSSL_ED25519
+#ifndef HAVE_LIBCRYPTO
         && signature->ed25519_sig == NULL
 #endif
         ))
@@ -2290,9 +3165,11 @@ int pki_verify_data_signature(ssh_signature signature,
         return SSH_ERROR;
     }
 
-#ifndef HAVE_OPENSSL_ED25519
+#ifndef HAVE_LIBCRYPTO
     if (pubkey->type == SSH_KEYTYPE_ED25519 ||
-        pubkey->type == SSH_KEYTYPE_ED25519_CERT01)
+        pubkey->type == SSH_KEYTYPE_ED25519_CERT01 ||
+        pubkey->type == SSH_KEYTYPE_SK_ED25519 ||
+        pubkey->type == SSH_KEYTYPE_SK_ED25519_CERT01)
     {
         return pki_ed25519_verify(pubkey, signature, input, input_len);
     }
@@ -2320,7 +3197,7 @@ int pki_verify_data_signature(ssh_signature signature,
     }
 
     /* Create the context */
-    ctx = EVP_MD_CTX_create();
+    ctx = EVP_MD_CTX_new();
     if (ctx == NULL) {
         SSH_LOG(SSH_LOG_TRACE,
                 "Failed to create EVP_MD_CTX: %s",
@@ -2337,19 +3214,7 @@ int pki_verify_data_signature(ssh_signature signature,
         goto out;
     }
 
-#ifdef HAVE_OPENSSL_EVP_DIGESTVERIFY
     evp_rc = EVP_DigestVerify(ctx, raw_sig_data, raw_sig_len, input, input_len);
-#else
-    evp_rc = EVP_DigestVerifyUpdate(ctx, input, input_len);
-    if (evp_rc != 1) {
-        SSH_LOG(SSH_LOG_TRACE,
-                "EVP_DigestVerifyUpdate() failed: %s",
-                ERR_error_string(ERR_get_error(), NULL));
-        goto out;
-    }
-
-    evp_rc = EVP_DigestVerifyFinal(ctx, raw_sig_data, raw_sig_len);
-#endif
     if (evp_rc == 1) {
         SSH_LOG(SSH_LOG_TRACE, "Signature valid");
         rc = SSH_OK;
@@ -2364,13 +3229,49 @@ out:
     if (ctx != NULL) {
         EVP_MD_CTX_free(ctx);
     }
-    if (pkey != NULL) {
-        EVP_PKEY_free(pkey);
-    }
+    EVP_PKEY_free(pkey);
     return rc;
 }
 
-#ifdef HAVE_OPENSSL_ED25519
+int ssh_key_size(ssh_key key)
+{
+    int bits = 0;
+    EVP_PKEY *pkey = NULL;
+
+    switch (key->type) {
+    case SSH_KEYTYPE_DSS:
+    case SSH_KEYTYPE_DSS_CERT01:
+    case SSH_KEYTYPE_RSA:
+    case SSH_KEYTYPE_RSA_CERT01:
+    case SSH_KEYTYPE_RSA1:
+    case SSH_KEYTYPE_ECDSA_P256:
+    case SSH_KEYTYPE_ECDSA_P256_CERT01:
+    case SSH_KEYTYPE_ECDSA_P384:
+    case SSH_KEYTYPE_ECDSA_P384_CERT01:
+    case SSH_KEYTYPE_ECDSA_P521:
+    case SSH_KEYTYPE_ECDSA_P521_CERT01:
+    case SSH_KEYTYPE_SK_ECDSA:
+    case SSH_KEYTYPE_SK_ECDSA_CERT01:
+        pkey = pki_key_to_pkey(key);
+        if (pkey == NULL) {
+            return SSH_ERROR;
+        }
+        bits = EVP_PKEY_bits(pkey);
+        EVP_PKEY_free(pkey);
+        return bits;
+    case SSH_KEYTYPE_ED25519:
+    case SSH_KEYTYPE_ED25519_CERT01:
+    case SSH_KEYTYPE_SK_ED25519:
+    case SSH_KEYTYPE_SK_ED25519_CERT01:
+        /* ed25519 keys have fixed size */
+        return 255;
+    case SSH_KEYTYPE_UNKNOWN:
+    default:
+        return SSH_ERROR;
+    }
+}
+
+#ifdef HAVE_LIBCRYPTO
 int pki_key_generate_ed25519(ssh_key key)
 {
     int evp_rc;
@@ -2488,6 +3389,156 @@ ssh_signature pki_do_sign_hash(const ssh_key privkey,
 
     return sig;
 }
-#endif /* HAVE_OPENSSL_ED25519 */
+#endif /* HAVE_LIBCRYPTO */
+
+/**
+ * @internal
+ *
+ * @brief Populate the public/private ssh_key from the engine with
+ * PKCS#11 URIs as the look up.
+ *
+ * @param[in]   uri_name    The PKCS#11 URI
+ * @param[in]   nkey        The ssh-key context for
+ *                          the key loaded from the engine.
+ * @param[in]   key_type    The type of the key used. Public/Private.
+ *
+ * @return  SSH_OK if ssh-key is valid; SSH_ERROR otherwise.
+ */
+int pki_uri_import(const char *uri_name,
+                     ssh_key *nkey,
+                     enum ssh_key_e key_type)
+{
+    ENGINE *engine = NULL;
+    EVP_PKEY *pkey = NULL;
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * Move HAVE_OPENSSL_ECC #ifdef into #if above
+ */
+#ifdef HAVE_OPENSSL_ECC
+    EC_KEY *ecdsa = NULL;
+#else
+    void *ecdsa = NULL;
+#endif
+    ssh_key key = NULL;
+    enum ssh_keytypes_e type = SSH_KEYTYPE_UNKNOWN;
+
+    /* Do the init only once */
+    engine = pki_get_engine();
+    if (engine == NULL) {
+        SSH_LOG(SSH_LOG_TRACE, "Failed to initialize engine");
+        goto fail;
+    }
+
+    switch (key_type) {
+    case SSH_KEY_PRIVATE:
+        pkey = ENGINE_load_private_key(engine, uri_name, NULL, NULL);
+        if (pkey == NULL) {
+            SSH_LOG(SSH_LOG_TRACE,
+                    "Could not load key: %s",
+                    ERR_error_string(ERR_get_error(),NULL));
+            goto fail;
+        }
+        break;
+    case SSH_KEY_PUBLIC:
+        pkey = ENGINE_load_public_key(engine, uri_name, NULL, NULL);
+        if (pkey == NULL) {
+            SSH_LOG(SSH_LOG_TRACE,
+                    "Could not load key: %s",
+                    ERR_error_string(ERR_get_error(),NULL));
+            goto fail;
+        }
+        break;
+    default:
+        SSH_LOG(SSH_LOG_TRACE,
+                "Invalid key type: %d", key_type);
+        goto fail;
+    }
+
+    key = ssh_key_new();
+    if (key == NULL) {
+        goto fail;
+    }
+
+    switch (EVP_PKEY_base_id(pkey)) {
+    case EVP_PKEY_RSA:
+        type = SSH_KEYTYPE_RSA;
+        break;
+    case EVP_PKEY_EC:
+#ifdef HAVE_OPENSSL_ECC
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER < 0x30000000L
+ */
+#if 1
+        ecdsa = EVP_PKEY_get1_EC_KEY(pkey);
+        if (ecdsa == NULL) {
+            SSH_LOG(SSH_LOG_TRACE,
+                    "Parsing pub key: %s",
+                    ERR_error_string(ERR_get_error(), NULL));
+            goto fail;
+        }
+
+        /* pki_privatekey_type_from_string always returns P256 for ECDSA
+         * keys, so we need to figure out the correct type here */
+        type = pki_key_ecdsa_to_key_type(ecdsa);
+#else
+        type = pki_key_ecdsa_to_key_type(pkey);
+#endif /* OPENSSL_VERSION_NUMBER */
+        if (type == SSH_KEYTYPE_UNKNOWN) {
+            SSH_LOG(SSH_LOG_TRACE, "Invalid pub key.");
+            goto fail;
+        }
+
+        break;
+#endif
+    default:
+        SSH_LOG(SSH_LOG_TRACE, "Unknown or invalid public key type %d",
+                EVP_PKEY_base_id(pkey));
+        goto fail;
+    }
+
+    key->key = pkey;
+    key->type = type;
+    key->type_c = ssh_key_type_to_char(type);
+    key->flags = SSH_KEY_FLAG_PUBLIC | SSH_KEY_FLAG_PKCS11_URI;
+    if (key_type == SSH_KEY_PRIVATE) {
+        key->flags |= SSH_KEY_FLAG_PRIVATE;
+    }
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * Move line key->ecdsa into #if above
+ */
+    key->ecdsa = ecdsa;
+#ifdef HAVE_OPENSSL_ECC
+    if (is_ecdsa_key_type(key->type)) {
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * #if OPENSSL_VERSION_NUMBER < 0x30000000L
+ */
+#if 1
+        key->ecdsa_nid = pki_key_ecdsa_to_nid(key->ecdsa);
+#else
+        key->ecdsa_nid = pki_key_ecdsa_to_nid(key->key);
+#endif /* OPENSSL_VERSION_NUMBER */
+    }
+#endif
+
+    *nkey = key;
+
+    return SSH_OK;
+
+fail:
+    EVP_PKEY_free(pkey);
+    ssh_key_free(key);
+/* TODO Change to new API when the OpenSSL will support export of uncompressed EC keys
+ * https://github.com/openssl/openssl/pull/16624
+ * Move HAVE_OPENSSL_ECC #ifdef into #if above
+ */
+#ifdef HAVE_OPENSSL_ECC
+    EC_KEY_free(ecdsa);
+#endif
+
+    return SSH_ERROR;
+}
 
 #endif /* _PKI_CRYPTO_H */

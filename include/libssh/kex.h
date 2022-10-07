@@ -31,6 +31,10 @@ struct ssh_kex_struct {
     char *methods[SSH_KEX_METHODS];
 };
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 SSH_PACKET_CALLBACK(ssh_packet_kexinit);
 
 int ssh_send_kex(ssh_session session, int server_kex);
@@ -40,6 +44,10 @@ int ssh_kex_select_methods(ssh_session session);
 int ssh_verify_existing_algo(enum ssh_kex_types_e algo, const char *name);
 char *ssh_keep_known_algos(enum ssh_kex_types_e algo, const char *list);
 char *ssh_keep_fips_algos(enum ssh_kex_types_e algo, const char *list);
+char *ssh_add_to_default_algos(enum ssh_kex_types_e algo, const char *list);
+char *ssh_remove_from_default_algos(enum ssh_kex_types_e algo,
+                                    const char *list);
+char *ssh_prefix_default_algos(enum ssh_kex_types_e algo, const char *list);
 char **ssh_space_tokenize(const char *chain);
 int ssh_get_kex1(ssh_session session);
 char *ssh_find_matching(const char *in_d, const char *what_d);
@@ -55,5 +63,9 @@ int ssh_make_sessionid(ssh_session session);
 int ssh_hashbufin_add_cookie(ssh_session session, unsigned char *cookie);
 int ssh_hashbufout_add_cookie(ssh_session session);
 int ssh_generate_session_keys(ssh_session session);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* KEX_H_ */
