@@ -26,7 +26,6 @@
 #include <windows.h>
 #include <winbase.h>
 #include <errno.h>
-#include <stdlib.h>
 
 static int ssh_winlock_mutex_init (void **priv)
 {

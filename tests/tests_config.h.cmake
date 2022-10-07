@@ -64,8 +64,6 @@
 
 /* Available programs */
 
-#cmakedefine NCAT_EXECUTABLE "${NCAT_EXECUTABLE}"
+#cmakedefine NC_EXECUTABLE "${NC_EXECUTABLE}"
 #cmakedefine SSHD_EXECUTABLE "${SSHD_EXECUTABLE}"
 #cmakedefine SSH_EXECUTABLE "${SSH_EXECUTABLE}"
-#cmakedefine WITH_TIMEOUT ${WITH_TIMEOUT}
-#cmakedefine TIMEOUT_EXECUTABLE "${TIMEOUT_EXECUTABLE}"
