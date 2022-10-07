@@ -175,95 +175,69 @@ error:
     return NULL;
 }
 
-sftp_session
-sftp_new_channel(ssh_session session, ssh_channel channel)
-{
-    sftp_session sftp = NULL;
+sftp_session sftp_new_channel(ssh_session session, ssh_channel channel){
+  sftp_session sftp;
 
-    if (session == NULL) {
-        return NULL;
-    }
-
-    sftp = calloc(1, sizeof(struct sftp_session_struct));
-    if (sftp == NULL) {
-        ssh_set_error_oom(session);
-        return NULL;
-    }
-
-    sftp->ext = sftp_ext_new();
-    if (sftp->ext == NULL) {
-        ssh_set_error_oom(session);
-        goto error;
-    }
-
-    sftp->read_packet = calloc(1, sizeof(struct sftp_packet_struct));
-    if (sftp->read_packet == NULL) {
-        ssh_set_error_oom(session);
-        goto error;
-    }
-
-    sftp->read_packet->payload = ssh_buffer_new();
-    if (sftp->read_packet->payload == NULL) {
-        ssh_set_error_oom(session);
-        goto error;
-    }
-
-    sftp->session = session;
-    sftp->channel = channel;
-
-    return sftp;
-
-error:
-    if (sftp->ext != NULL) {
-        sftp_ext_free(sftp->ext);
-    }
-    if (sftp->read_packet != NULL) {
-        if (sftp->read_packet->payload != NULL) {
-            SSH_BUFFER_FREE(sftp->read_packet->payload);
-        }
-        SAFE_FREE(sftp->read_packet);
-    }
-    SAFE_FREE(sftp);
+  if (session == NULL) {
     return NULL;
+  }
+
+  sftp = calloc(1, sizeof(struct sftp_session_struct));
+  if (sftp == NULL) {
+    ssh_set_error_oom(session);
+
+    return NULL;
+  }
+
+  sftp->ext = sftp_ext_new();
+  if (sftp->ext == NULL) {
+    ssh_set_error_oom(session);
+    SAFE_FREE(sftp);
+
+    return NULL;
+  }
+
+  sftp->session = session;
+  sftp->channel = channel;
+
+  return sftp;
 }
 
 #ifdef WITH_SERVER
-sftp_session
-sftp_server_new(ssh_session session, ssh_channel chan)
-{
-    sftp_session sftp = NULL;
+sftp_session sftp_server_new(ssh_session session, ssh_channel chan){
+  sftp_session sftp = NULL;
 
-    sftp = calloc(1, sizeof(struct sftp_session_struct));
-    if (sftp == NULL) {
-        ssh_set_error_oom(session);
-        return NULL;
-    }
+  sftp = calloc(1, sizeof(struct sftp_session_struct));
+  if (sftp == NULL) {
+    ssh_set_error_oom(session);
+    return NULL;
+  }
 
-    sftp->read_packet = calloc(1, sizeof(struct sftp_packet_struct));
-    if (sftp->read_packet == NULL) {
-        goto error;
-    }
+  sftp->read_packet = calloc(1, sizeof(struct sftp_packet_struct));
+  if (sftp->read_packet == NULL) {
+    goto error;
+  }
 
-    sftp->read_packet->payload = ssh_buffer_new();
-    if (sftp->read_packet->payload == NULL) {
-        goto error;
-    }
+  sftp->read_packet->payload = ssh_buffer_new();
+  if (sftp->read_packet->payload == NULL) {
+    goto error;
+  }
 
-    sftp->session = session;
-    sftp->channel = chan;
+  sftp->session = session;
+  sftp->channel = chan;
 
-    return sftp;
+  return sftp;
 
 error:
-    ssh_set_error_oom(session);
-    if (sftp->read_packet != NULL) {
-        if (sftp->read_packet->payload != NULL) {
-            SSH_BUFFER_FREE(sftp->read_packet->payload);
-        }
-        SAFE_FREE(sftp->read_packet);
+  ssh_set_error_oom(session);
+  if (sftp->read_packet != NULL) {
+    if (sftp->read_packet->payload != NULL) {
+      SSH_BUFFER_FREE(sftp->read_packet->payload);
     }
-    SAFE_FREE(sftp);
-    return NULL;
+    SAFE_FREE(sftp->read_packet);
+  }
+  SAFE_FREE(sftp);
+  return NULL;
 }
 
 int sftp_server_init(sftp_session sftp){
@@ -387,11 +361,11 @@ void sftp_free(sftp_session sftp)
     SAFE_FREE(sftp);
 }
 
-int sftp_packet_write(sftp_session sftp, uint8_t type, ssh_buffer payload)
+ssize_t sftp_packet_write(sftp_session sftp, uint8_t type, ssh_buffer payload)
 {
     uint8_t header[5] = {0};
     uint32_t payload_size;
-    int size;
+    ssize_t size;
     int rc;
 
     /* Add size of type */
@@ -416,7 +390,7 @@ int sftp_packet_write(sftp_session sftp, uint8_t type, ssh_buffer payload)
 
     if ((uint32_t)size != ssh_buffer_get_len(payload)) {
         SSH_LOG(SSH_LOG_PACKET,
-                "Had to write %"PRId32" bytes, wrote only %d",
+                "Had to write %"PRId32" bytes, wrote only %zd",
                 ssh_buffer_get_len(payload),
                 size);
     }
@@ -427,7 +401,7 @@ int sftp_packet_write(sftp_session sftp, uint8_t type, ssh_buffer payload)
 sftp_packet sftp_packet_read(sftp_session sftp)
 {
     uint8_t tmpbuf[4];
-    uint8_t *buffer = NULL;
+    uint8_t *buffer;
     sftp_packet packet = sftp->read_packet;
     uint32_t size;
     int nread;
@@ -866,7 +840,7 @@ static int sftp_enqueue(sftp_session sftp, sftp_message msg) {
 }
 
 /*
- * Pulls a message from the queue based on the ID.
+ * Pulls of a message from the queue based on the ID.
  * Returns NULL if no message has been found.
  */
 static sftp_message sftp_dequeue(sftp_session sftp, uint32_t id){
@@ -1102,7 +1076,7 @@ sftp_dir sftp_opendir(sftp_session sftp, const char *path)
 /*
  * Parse the attributes from a payload from some messages. It is coded on
  * baselines from the protocol version 4.
- * This code is more or less dead but maybe we will need it in the future.
+ * This code is more or less dead but maybe we need it in future.
  */
 static sftp_attributes sftp_parse_attr_4(sftp_session sftp, ssh_buffer buf,
     int expectnames) {
@@ -1290,7 +1264,7 @@ static char *sftp_parse_longname(const char *longname,
     size_t len, field = 0;
 
     p = longname;
-    /* Find the beginning of the field which is specified by sftp_longname_field_e. */
+    /* Find the beginning of the field which is specified by sftp_longanme_field_e. */
     while(field != longname_field) {
         if(isspace(*p)) {
             field++;
@@ -2003,7 +1977,7 @@ ssize_t sftp_read(sftp_file handle, void *buf, size_t count) {
       if (datalen > count) {
         ssh_set_error(sftp->session, SSH_FATAL,
             "Received a too big DATA packet from sftp server: "
-            "%zu and asked for %zu",
+            "%" PRIdS " and asked for %" PRIdS,
             datalen, count);
         SSH_STRING_FREE(datastring);
         return -1;
@@ -2125,7 +2099,7 @@ int sftp_async_read(sftp_file file, void *data, uint32_t size, uint32_t id){
       if (ssh_string_len(datastring) > size) {
         ssh_set_error(sftp->session, SSH_FATAL,
             "Received a too big DATA packet from sftp server: "
-            "%zu and asked for %"PRIu32,
+            "%" PRIdS " and asked for %"PRIu32,
             ssh_string_len(datastring), size);
         SSH_STRING_FREE(datastring);
         return SSH_ERROR;
@@ -2178,8 +2152,8 @@ ssize_t sftp_write(sftp_file file, const void *buf, size_t count) {
     sftp_set_error(sftp, SSH_FX_FAILURE);
     return -1;
   }
-  len = sftp_packet_write(file->sftp, SSH_FXP_WRITE, buffer);
   packetlen=ssh_buffer_get_len(buffer);
+  len = sftp_packet_write(file->sftp, SSH_FXP_WRITE, buffer);
   SSH_BUFFER_FREE(buffer);
   if (len < 0) {
     return -1;

@@ -85,7 +85,7 @@ static int ssh_connector_channel_data_cb(ssh_session session,
                                          void *userdata);
 static int ssh_connector_channel_write_wontblock_cb(ssh_session session,
                                                     ssh_channel channel,
-                                                    uint32_t bytes,
+                                                    size_t bytes,
                                                     void *userdata);
 static ssize_t ssh_connector_fd_read(ssh_connector connector,
                                      void *buffer,
@@ -216,7 +216,7 @@ static void ssh_connector_except_channel(ssh_connector connector,
 /**
  * @internal
  *
- * @brief Reset the poll events to be followed for each file descriptor.
+ * @brief Reset the poll events to be followed for each file descriptors.
  */
 static void ssh_connector_reset_pollevents(ssh_connector connector)
 {
@@ -248,14 +248,14 @@ static void ssh_connector_fd_in_cb(ssh_connector connector)
     uint32_t toread = CHUNKSIZE;
     ssize_t r;
     ssize_t w;
-    ssize_t total = 0;
+    int total = 0;
     int rc;
 
     SSH_LOG(SSH_LOG_TRACE, "connector POLLIN event for fd %d", connector->in_fd);
 
     if (connector->out_wontblock) {
         if (connector->out_channel != NULL) {
-            uint32_t size = ssh_channel_window_size(connector->out_channel);
+            size_t size = ssh_channel_window_size(connector->out_channel);
 
             /* Don't attempt reading more than the window */
             toread = MIN(size, CHUNKSIZE);
@@ -328,9 +328,9 @@ static void ssh_connector_fd_in_cb(ssh_connector connector)
  */
 static void ssh_connector_fd_out_cb(ssh_connector connector){
     unsigned char buffer[CHUNKSIZE];
-    ssize_t r;
-    ssize_t w;
-    ssize_t total = 0;
+    int r;
+    int w;
+    int total = 0;
     SSH_LOG(SSH_LOG_TRACE, "connector POLLOUT event for fd %d", connector->out_fd);
 
     if(connector->in_available){
@@ -432,7 +432,7 @@ static int ssh_connector_channel_data_cb(ssh_session session,
 {
     ssh_connector connector = userdata;
     int w;
-    uint32_t window;
+    size_t window;
 
     (void) session;
     (void) channel;
@@ -446,14 +446,11 @@ static int ssh_connector_channel_data_cb(ssh_session session,
     } else if (!is_stderr && !(connector->in_flags & SSH_CONNECTOR_STDOUT)) {
         /* ignore stdout */
         return 0;
-    } else if (len == 0) {
-        /* ignore empty data */
-        return 0;
     }
 
     if (connector->out_wontblock) {
         if (connector->out_channel != NULL) {
-            uint32_t window_len;
+            int window_len;
 
             window = ssh_channel_window_size(connector->out_channel);
             window_len = MIN(window, len);
@@ -517,7 +514,7 @@ static int ssh_connector_channel_data_cb(ssh_session session,
  */
 static int ssh_connector_channel_write_wontblock_cb(ssh_session session,
                                                     ssh_channel channel,
-                                                    uint32_t bytes,
+                                                    size_t bytes,
                                                     void *userdata)
 {
     ssh_connector connector = userdata;
@@ -529,7 +526,7 @@ static int ssh_connector_channel_write_wontblock_cb(ssh_session session,
     SSH_LOG(SSH_LOG_TRACE, "Channel write won't block");
     if (connector->in_available) {
         if (connector->in_channel != NULL) {
-            uint32_t len = MIN(CHUNKSIZE, bytes);
+            size_t len = MIN(CHUNKSIZE, bytes);
 
             r = ssh_channel_read_nonblocking(connector->in_channel,
                                              buffer,

@@ -35,10 +35,6 @@ if (UNIX AND NOT WIN32)
     target_compile_options(ssh-client PRIVATE ${DEFAULT_C_COMPILE_FLAGS})
     target_link_libraries(ssh-client ssh::ssh)
 
-    add_executable(ssh-X11-client ssh_X11_client.c ${examples_SRCS})
-    target_compile_options(ssh-X11-client PRIVATE ${DEFAULT_C_COMPILE_FLAGS})
-    target_link_libraries(ssh-X11-client ssh::ssh)
-
     if (WITH_SERVER AND (ARGP_LIBRARY OR HAVE_ARGP_H))
         if (HAVE_LIBUTIL)
             add_executable(ssh_server_fork ssh_server.c)
@@ -51,6 +47,10 @@ if (UNIX AND NOT WIN32)
         endif (HAVE_LIBUTIL)
 
         if (WITH_GSSAPI AND GSSAPI_FOUND)
+            add_executable(samplesshd-cb samplesshd-cb.c)
+            target_compile_options(samplesshd-cb PRIVATE ${DEFAULT_C_COMPILE_FLAGS})
+            target_link_libraries(samplesshd-cb ssh::ssh ${ARGP_LIBRARY})
+
             add_executable(proxy proxy.c)
             target_compile_options(proxy PRIVATE ${DEFAULT_C_COMPILE_FLAGS})
             target_link_libraries(proxy ssh::ssh ${ARGP_LIBRARY})
@@ -64,21 +64,8 @@ if (UNIX AND NOT WIN32)
         target_compile_options(samplesshd-kbdint PRIVATE ${DEFAULT_C_COMPILE_FLAGS})
         target_link_libraries(samplesshd-kbdint ssh::ssh ${ARGP_LIBRARY})
 
-        add_executable(keygen2 keygen2.c ${examples_SRCS})
-        target_compile_options(keygen2 PRIVATE ${DEFAULT_C_COMPILE_FLAGS})
-        target_link_libraries(keygen2 ssh::ssh ${ARGP_LIBRARY})
-
     endif()
 endif (UNIX AND NOT WIN32)
-
-if (WITH_SERVER)
-    add_executable(samplesshd-cb samplesshd-cb.c)
-    target_compile_options(samplesshd-cb PRIVATE ${DEFAULT_C_COMPILE_FLAGS})
-    target_link_libraries(samplesshd-cb ssh::ssh)
-    if (ARGP_LIBRARY OR HAVE_ARGP_H)
-        target_link_libraries(samplesshd-cb ${ARGP_LIBRARY})
-    endif(ARGP_LIBRARY OR HAVE_ARGP_H)
-endif()
 
 add_executable(exec exec.c ${examples_SRCS})
 target_compile_options(exec PRIVATE ${DEFAULT_C_COMPILE_FLAGS})

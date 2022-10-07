@@ -82,8 +82,6 @@ static void torture_ssh_forward(void **state)
     ssh_channel c;
     int dport;
     int bound_port;
-    char *originator_host = NULL;
-    int originator_port;
     int rc;
     int verbosity = SSH_LOG_TRACE;
 
@@ -92,7 +90,7 @@ static void torture_ssh_forward(void **state)
     rc = ssh_channel_listen_forward(session, "127.0.0.21", 8080, &bound_port);
     assert_ssh_return_code(session, rc);
 
-    c = ssh_channel_open_forward_port(session, 10, &dport, &originator_host, &originator_port);
+    c = ssh_channel_accept_forward(session, 10, &dport);
     /* We do not get a listener and run into the timeout here */
     assert_null(c);
 

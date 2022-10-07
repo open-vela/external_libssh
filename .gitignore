@@ -1,10 +1,11 @@
 *.a
 *.o
+.*
 *.swp
 *~$
+Make.dep
 cscope.*
 compile_commands.json
-/.cache
 /.clangd
 tags
 /build

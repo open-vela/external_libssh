@@ -67,6 +67,11 @@ char *strndup(const char *s, size_t n);
 
 #ifdef _WIN32
 
+/* Imitate define of inttypes.h */
+# ifndef PRIdS
+#  define PRIdS "Id"
+# endif
+
 # ifndef PRIu64
 #  if __WORDSIZE == 64
 #   define PRIu64 "lu"
@@ -152,15 +157,14 @@ char *strndup(const char *s, size_t n);
 # endif /* _MSC_VER */
 
 struct timeval;
-int ssh_gettimeofday(struct timeval *__p, void *__t);
-
-#define gettimeofday ssh_gettimeofday
+int gettimeofday(struct timeval *__p, void *__t);
 
 #define _XCLOSESOCKET closesocket
 
 #else /* _WIN32 */
 
 #include <unistd.h>
+#define PRIdS "zd"
 
 #define _XCLOSESOCKET close
 
@@ -301,7 +305,7 @@ int decompress_buffer(ssh_session session,ssh_buffer buf, size_t maxlen);
 
 /* match.c */
 int match_pattern_list(const char *string, const char *pattern,
-    size_t len, int dolower);
+    unsigned int len, int dolower);
 int match_hostname(const char *host, const char *pattern, unsigned int len);
 
 /* connector.c */
@@ -352,7 +356,7 @@ void explicit_bzero(void *s, size_t n);
 #define discard_const_p(type, ptr) ((type *)discard_const(ptr))
 
 /**
- * Get the argument count of variadic arguments
+ * Get the argument cound of variadic arguments
  */
 /*
  * Since MSVC 2010 there is a bug in passing __VA_ARGS__ to subsequent
@@ -430,8 +434,5 @@ void explicit_bzero(void *s, size_t n);
 void ssh_agent_state_free(void *data);
 
 bool is_ssh_initialized(void);
-
-#define SSH_ERRNO_MSG_MAX   1024
-char *ssh_strerror(int err_num, char *buf, size_t buflen);
 
 #endif /* _LIBSSH_PRIV_H */

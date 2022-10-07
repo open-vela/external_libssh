@@ -24,12 +24,6 @@ if (SCP_EXECUTABLE)
         torture_scp)
 endif()
 
-if (WITH_PKCS11_URI)
-    set(LIBSSH_CLIENT_TESTS
-        ${LIBSSH_CLIENT_TESTS}
-        torture_auth_pkcs11)
-endif()
-
 if (DEFAULT_C_NO_DEPRECATION_FLAGS)
     set_source_files_properties(torture_knownhosts.c
                                 PROPERTIES
@@ -43,7 +37,6 @@ if (WITH_SFTP)
     endif()
     set(LIBSSH_CLIENT_TESTS
         ${LIBSSH_CLIENT_TESTS}
-        torture_sftp_init
         torture_sftp_ext
         torture_sftp_canonicalize_path
         torture_sftp_dir
