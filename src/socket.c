@@ -913,7 +913,7 @@ ssh_execute_command(const char *command, socket_t in, socket_t out)
     /* redirect in and out to stdin, stdout */
     posix_spawn_file_actions_adddup2(&file_actions, in, 0);
     posix_spawn_file_actions_adddup2(&file_actions, out, 1);
-    ret = posix_spawn(&pid, args[0], &file_actions, NULL, (char *const *)args, NULL);
+    rc = posix_spawn(&pid, args[0], &file_actions, NULL, (char *const *)args, NULL);
     posix_spawn_file_actions_destroy(&file_actions);
     if (rc > 0) {
         char err_msg[SSH_ERRNO_MSG_MAX] = {0};
