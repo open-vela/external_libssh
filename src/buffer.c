@@ -23,6 +23,7 @@
 
 #include "config.h"
 
+#include <inttypes.h>
 #include <limits.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -84,21 +85,21 @@ static void buffer_verify(ssh_buffer buf)
 
     if (buf->used > buf->allocated) {
         fprintf(stderr,
-                "BUFFER ERROR: allocated %u, used %u\n",
+                "BUFFER ERROR: allocated %" PRIu32 ", used %" PRIu32 "\n",
                 buf->allocated,
                 buf->used);
         do_abort = true;
     }
     if (buf->pos > buf->used) {
         fprintf(stderr,
-                "BUFFER ERROR: position %u, used %u\n",
+                "BUFFER ERROR: position %" PRIu32 ", used %" PRIu32 "\n",
                 buf->pos,
                 buf->used);
         do_abort = true;
     }
     if (buf->pos > buf->allocated) {
         fprintf(stderr,
-                "BUFFER ERROR: position %u, allocated %u\n",
+                "BUFFER ERROR: position %" PRIu32 ", allocated %" PRIu32 "\n",
                 buf->pos,
                 buf->allocated);
         do_abort = true;

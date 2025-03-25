@@ -63,6 +63,7 @@
 #define TORTURE_SSHD_CONFIG "sshd/sshd_config"
 #define TORTURE_PCAP_FILE "socket_trace.pcap"
 
+#ifdef SSHD_EXECUTABLE
 static const char torture_rsa_certauth_pub[]=
         "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCnA2n5vHzZbs/GvRkGloJNV1CXHI"
         "S5Xnrm05HusUJSWyPq3I1iCMHdYA7oezHa9GCFYbIenaYPy+G6USQRjYQz8SvAZo06"
@@ -71,6 +72,7 @@ static const char torture_rsa_certauth_pub[]=
         "IQDxubl650WYLHgFfad0xTzBIFE6XUb55Dp5AgRdevSoso1Pe0IKFxxMVpP664LCbY"
         "K06Lv6kcotfFlpvUtR1yx8jToGcSoq5sSzTwvXSHCQQ9ZA1hvF "
         "torture_certauth_key";
+#endif
 
 static int verbosity = 0;
 static const char *pattern = NULL;
@@ -561,7 +563,9 @@ void torture_setup_socket_dir(void **state)
     const char *p;
     size_t len;
     char *env = NULL;
+#ifdef WITH_PCAP
     int rc;
+#endif
 
     s = calloc(1, sizeof(struct torture_state));
     assert_non_null(s);
