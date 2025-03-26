@@ -78,8 +78,8 @@ static void test_mock_ssh_logging_callback(int priority,
     struct test_mock_state *t = (struct test_mock_state *)userdata;
 
     check_expected(priority);
-    check_expected(function);
-    check_expected(buffer);
+    check_expected_ptr(function);
+    check_expected_ptr(buffer);
 
     t->executed++;
 }
