@@ -103,6 +103,9 @@ static void torture_log_callback(void **state)
     SSH_LOG(SSH_LOG_WARN, "test");
 
     assert_int_equal(t.executed, 1);
+
+    ssh_set_log_callback(NULL);
+    ssh_set_log_userdata(NULL);
 }
 
 static void cb1(ssh_session session, ssh_channel channel, void *userdata){

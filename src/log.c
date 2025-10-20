@@ -212,10 +212,6 @@ int ssh_get_log_level(void) {
 }
 
 int ssh_set_log_callback(ssh_logging_callback cb) {
-  if (cb == NULL) {
-    return SSH_ERROR;
-  }
-
   ssh_log_cb = cb;
 
   return SSH_OK;
