@@ -41,14 +41,18 @@
 #include <mbedtls/gcm.h>
 #endif /* MBEDTLS_GCM_C */
 
-static mbedtls_entropy_context ssh_mbedtls_entropy;
-extern mbedtls_ctr_drbg_context ssh_mbedtls_ctr_drbg;
+static mbedtls_entropy_context *ssh_mbedtls_entropy;
+extern mbedtls_ctr_drbg_context *ssh_mbedtls_ctr_drbg;
 
 static int libmbedcrypto_initialized = 0;
 
 void ssh_reseed(void)
 {
-    mbedtls_ctr_drbg_reseed(&ssh_mbedtls_ctr_drbg, NULL, 0);
+    if (ssh_mbedtls_ctr_drbg == NULL) {
+        return;
+    }
+
+    mbedtls_ctr_drbg_reseed(ssh_mbedtls_ctr_drbg, NULL, 0);
 }
 
 static mbedtls_md_type_t nid_to_md_algo(int nid)
@@ -971,7 +975,13 @@ none_crypt(UNUSED_PARAM(struct ssh_cipher_struct *cipher),
 }
 #endif /* WITH_INSECURE_NONE */
 
-static struct ssh_cipher_struct ssh_ciphertab[] = {
+#if defined(MBEDTLS_CHACHA20_C) && defined(MBEDTLS_POLY1305_C)
+#  define SSH_CIPHER_TABLE_CONST const
+#else
+#  define SSH_CIPHER_TABLE_CONST
+#endif
+
+static SSH_CIPHER_TABLE_CONST struct ssh_cipher_struct ssh_ciphertab[] = {
 #ifdef WITH_BLOWFISH_CIPHER
     {
         .name = "blowfish-cbc",
@@ -1134,7 +1144,7 @@ static struct ssh_cipher_struct ssh_ciphertab[] = {
 
 struct ssh_cipher_struct *ssh_get_ciphertab(void)
 {
-    return ssh_ciphertab;
+    return (struct ssh_cipher_struct *)ssh_ciphertab;
 }
 
 int ssh_crypto_init(void)
@@ -1146,13 +1156,28 @@ int ssh_crypto_init(void)
         return SSH_OK;
     }
 
-    mbedtls_entropy_init(&ssh_mbedtls_entropy);
-    mbedtls_ctr_drbg_init(&ssh_mbedtls_ctr_drbg);
+    ssh_mbedtls_entropy = malloc(sizeof(*ssh_mbedtls_entropy));
+    if (ssh_mbedtls_entropy == NULL) {
+        return SSH_ERROR;
+    }
 
-    rc = mbedtls_ctr_drbg_seed(&ssh_mbedtls_ctr_drbg, mbedtls_entropy_func,
-            &ssh_mbedtls_entropy, NULL, 0);
+    ssh_mbedtls_ctr_drbg = malloc(sizeof(*ssh_mbedtls_ctr_drbg));
+    if (ssh_mbedtls_ctr_drbg == NULL) {
+        SAFE_FREE(ssh_mbedtls_entropy);
+        return SSH_ERROR;
+    }
+
+    mbedtls_entropy_init(ssh_mbedtls_entropy);
+    mbedtls_ctr_drbg_init(ssh_mbedtls_ctr_drbg);
+
+    rc = mbedtls_ctr_drbg_seed(ssh_mbedtls_ctr_drbg, mbedtls_entropy_func,
+            ssh_mbedtls_entropy, NULL, 0);
     if (rc != 0) {
-        mbedtls_ctr_drbg_free(&ssh_mbedtls_ctr_drbg);
+        mbedtls_ctr_drbg_free(ssh_mbedtls_ctr_drbg);
+        mbedtls_entropy_free(ssh_mbedtls_entropy);
+        SAFE_FREE(ssh_mbedtls_ctr_drbg);
+        SAFE_FREE(ssh_mbedtls_entropy);
+        return SSH_ERROR;
     }
 
 #if !(defined(MBEDTLS_CHACHA20_C) && defined(MBEDTLS_POLY1305_C))
@@ -1176,7 +1201,7 @@ int ssh_crypto_init(void)
 
 mbedtls_ctr_drbg_context *ssh_get_mbedtls_ctr_drbg_context(void)
 {
-    return &ssh_mbedtls_ctr_drbg;
+    return ssh_mbedtls_ctr_drbg;
 }
 
 void ssh_crypto_finalize(void)
@@ -1185,8 +1210,15 @@ void ssh_crypto_finalize(void)
         return;
     }
 
-    mbedtls_ctr_drbg_free(&ssh_mbedtls_ctr_drbg);
-    mbedtls_entropy_free(&ssh_mbedtls_entropy);
+    if (ssh_mbedtls_ctr_drbg != NULL) {
+        mbedtls_ctr_drbg_free(ssh_mbedtls_ctr_drbg);
+        SAFE_FREE(ssh_mbedtls_ctr_drbg);
+    }
+
+    if (ssh_mbedtls_entropy != NULL) {
+        mbedtls_entropy_free(ssh_mbedtls_entropy);
+        SAFE_FREE(ssh_mbedtls_entropy);
+    }
 
     libmbedcrypto_initialized = 0;
 }
