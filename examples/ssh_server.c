@@ -73,10 +73,9 @@ static void set_default_keys(ssh_bind sshbind,
     ssh_bind_options_set(sshbind, SSH_BIND_OPTIONS_HOSTKEY,
                          KEYS_FOLDER "ssh_host_ed25519_key");
 }
-#define DEF_STR_SIZE 1024
-char authorizedkeys[DEF_STR_SIZE] = {0};
-char username[128] = "myuser";
-char password[128] = "mypassword";
+const char *authorizedkeys = "";
+const char *username = "myuser";
+const char *password = "mypassword";
 #ifdef HAVE_ARGP_H
 const char *argp_program_version = "libssh server example "
 SSH_STRINGIFY(LIBSSH_VERSION);
@@ -209,13 +208,13 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state) {
             ecdsa_already_set = 1;
             break;
         case 'a':
-            strncpy(authorizedkeys, arg, DEF_STR_SIZE-1);
+            authorizedkeys = arg;
             break;
         case 'u':
-            strncpy(username, arg, sizeof(username) - 1);
+            username = arg;
             break;
         case 'P':
-            strncpy(password, arg, sizeof(password) - 1);
+            password = arg;
             break;
         case 'v':
             ssh_bind_options_set(sshbind, SSH_BIND_OPTIONS_LOG_VERBOSITY_STR,
@@ -279,11 +278,11 @@ static int parse_opt(int argc, char **argv, ssh_bind sshbind) {
             ssh_bind_options_set(sshbind, SSH_BIND_OPTIONS_ECDSAKEY, optarg);
             ecdsa_already_set = 1;
         } else if (key == 'a') {
-            strncpy(authorizedkeys, optarg, DEF_STR_SIZE-1);
+            authorizedkeys = optarg;
         } else if (key == 'u') {
-            strncpy(username, optarg, sizeof(username) - 1);
+            username = optarg;
         } else if (key == 'P') {
-            strncpy(password, optarg, sizeof(password) - 1);
+            password = optarg;
         } else if (key == 'v') {
             ssh_bind_options_set(sshbind, SSH_BIND_OPTIONS_LOG_VERBOSITY_STR,
                                  "3");

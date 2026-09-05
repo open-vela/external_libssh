@@ -100,7 +100,7 @@ int ssh_mbedcry_hex2bn(bignum *dest, char *data);
 #define bignum_bin2bn(data, datalen, bn) do { \
     *(bn) = bignum_new(); \
     if (*(bn) != NULL) { \
-        mbedtls_mpi_read_binary(*(bn), data, datalen); \
+        mbedtls_mpi_read_binary(*(bn), (const unsigned char *)(data), datalen); \
     } \
     } while(0)
 #define bignum_bn2dec(num) ssh_mbedcry_bn2num(num, 10)
